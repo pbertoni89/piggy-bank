@@ -1,12 +1,12 @@
 import sys
-import logging
-import pandas as pd
-
 from PySide6.QtCore import Slot, QDate, QTimer, Qt
 from PySide6.QtWidgets import QApplication, QMainWindow, QTableWidgetItem, QHeaderView
-from piggy_bank.ui.main_window_rc import Ui_MainWindow
-from piggy_bank import etica
 
+from piggy_bank.ui.main_window_rc import Ui_MainWindow
+from piggy_bank.etica import *
+
+# Define the new constant for the UI
+COL_INV = 'Blacklisted'
 
 class NumericTableWidgetItem(QTableWidgetItem):
     """Custom TableWidgetItem that sorts numerically instead of alphabetically."""
@@ -29,24 +29,31 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.setupUi(self)
 
         df = self.get_data_source()
+
+        # Cache column indices dynamically to avoid hardcoding (e.g., 0, 1, 2)
+        self.idx_data = df.columns.get_loc(COL_DATA)
+        self.idx_out = df.columns.get_loc(COL_MINUS)
+        self.idx_in = df.columns.get_loc(COL_PLUS)
+        self.idx_desc = df.columns.get_loc(COL_DESCR)
+        self.idx_inv = df.columns.get_loc(COL_INV)
+
         self._populate_table(df)
 
-        # Enlarge "Data contabile" column to fit data, fill remaining space with "Descrizione", fixed width for others.
+        # Configure Header layout using dynamic indices
         header = self.qtw_movimenti.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents) # Data contabile
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)            # out
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)            # in
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)          # Descrizione
+        header.setSectionResizeMode(self.idx_data, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(self.idx_out, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(self.idx_in, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(self.idx_desc, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(self.idx_inv, QHeaderView.ResizeMode.ResizeToContents)
 
-        self.qtw_movimenti.setColumnWidth(1, 100)
-        self.qtw_movimenti.setColumnWidth(2, 100)
+        self.qtw_movimenti.setColumnWidth(self.idx_out, 100)
+        self.qtw_movimenti.setColumnWidth(self.idx_in, 100)
 
-        # Set qde_start and qde_end to the min and max dates from the data source
-        if not df.empty and 'Data contabile' in df.columns:
-            # Assumes 'Data contabile' is parsed as datetime or string dates formatted consistently (YYYY-MM-DD)
-            dates = pd.to_datetime(df['Data contabile'], errors='coerce')
-            min_date = dates.min()
-            max_date = dates.max()
+        # Set qde_start and qde_end to the min and max dates
+        if not df.empty:
+            dates = pd.to_datetime(df[COL_DATA], errors='coerce')
+            min_date, max_date = dates.min(), dates.max()
 
             if not pd.isna(min_date):
                 self.qde_start.setDate(QDate(min_date.year, min_date.month, min_date.day))
@@ -56,14 +63,22 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # Setup range sliders and their labels
         self._setup_sliders(df)
 
+        # Setup Default Filter State for Radio Buttons
+        if not (self.qrb_all.isChecked() or self.qrb_inv_no.isChecked() or self.qrb_inv_only.isChecked()):
+            self.qrb_all.setChecked(True)
+
         # --- Set up the debouncing timer ---
         self.filter_timer = QTimer(self)
         self.filter_timer.setSingleShot(True)  # Ensures it only fires once per timeout
-        self.filter_timer.setInterval(1000)    # 1000 milliseconds = 1 second
+        self.filter_timer.setInterval(1000)
         self.filter_timer.timeout.connect(self._apply_filters)
 
-        # --- Enable Sorting ---
-        # It's important this is called *after* self._populate_table()
+        # Hook up radio button signals
+        self.qrb_all.toggled.connect(self.on_qrb_toggled)
+        self.qrb_inv_no.toggled.connect(self.on_qrb_toggled)
+        self.qrb_inv_only.toggled.connect(self.on_qrb_toggled)
+
+        # Enable sorting after population
         self.qtw_movimenti.setSortingEnabled(True)
 
         # Apply initial filters
@@ -74,9 +89,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         # Safely convert to numeric, dropping NaNs for min/max calculation
         # noinspection unresolved-references
-        ser_out = pd.to_numeric(df['Dare'], errors='coerce').dropna() if not df.empty else pd.Series()
+        ser_out = pd.to_numeric(df[COL_MINUS], errors='coerce').dropna()
         # noinspection unresolved-references
-        ser_in = pd.to_numeric(df['Avere'], errors='coerce').dropna() if not df.empty else pd.Series()
+        ser_in = pd.to_numeric(df[COL_PLUS], errors='coerce').dropna()
 
         # Extract bounds. QSlider only supports integers, so we cast to int (padding max by +1 for inclusivity).
         incl = 0  # Inclusive max for slider?
@@ -119,15 +134,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             for col_idx, value in enumerate(row):
                 val_str = "" if pd.isna(value) else str(value)
 
-                # out and in are columns 1 and 2. Use the custom numeric sorting item for them.
-                if col_idx in (1, 2):
+                # Use numeric table items for Dare/Avere to ensure proper numeric sorting
+                if col_idx in (self.idx_out, self.idx_in):
                     item = NumericTableWidgetItem(val_str)
                 else:
                     item = QTableWidgetItem(val_str)
 
-                # Make the cell read-only by removing the ItemIsEditable flag
+                # Make the cell read-only
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-
                 self.qtw_movimenti.setItem(row_idx, col_idx, item)
 
         # Turn sorting back on
@@ -143,30 +157,41 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         start_date_str = self.qde_start.date().toString("yyyy-MM-dd")
         end_date_str = self.qde_end.date().toString("yyyy-MM-dd")
 
-        # Get current ranges
+        show_no_inv = self.qrb_inv_no.isChecked()
+        show_only_inv = self.qrb_inv_only.isChecked()
+
         d_min, d_max = self.qrs_out.value()
         a_min, a_max = self.qrs_in.value()
 
-        # Lists to hold visible values for aggregations
         visible_out = []
         visible_in = []
         visible_all = []
 
         for row_idx in range(self.qtw_movimenti.rowCount()):
-            date_item = self.qtw_movimenti.item(row_idx, 0)
-            out_item = self.qtw_movimenti.item(row_idx, 1)
-            in_item = self.qtw_movimenti.item(row_idx, 2)
-            desc_item = self.qtw_movimenti.item(row_idx, 3)
+            date_item = self.qtw_movimenti.item(row_idx, self.idx_data)
+            out_item = self.qtw_movimenti.item(row_idx, self.idx_out)
+            in_item = self.qtw_movimenti.item(row_idx, self.idx_in)
+            desc_item = self.qtw_movimenti.item(row_idx, self.idx_desc)
+            bl_item = self.qtw_movimenti.item(row_idx, self.idx_inv)
 
             date_val = date_item.text() if date_item else ""
             out_val_str = out_item.text().strip() if out_item else ""
             in_val_str = in_item.text().strip() if in_item else ""
             desc_val = desc_item.text().lower() if desc_item else ""
+            bl_val = int(bl_item.text().strip()) if (bl_item and bl_item.text().strip()) else 0
 
             is_out_row = bool(out_val_str)
             is_in_row = bool(in_val_str)
 
-            # 1. out Filter
+            # 0. Blacklist Filter
+            if show_no_inv and bl_val == 1:
+                self.qtw_movimenti.setRowHidden(row_idx, True)
+                continue
+            if show_only_inv and bl_val == 0:
+                self.qtw_movimenti.setRowHidden(row_idx, True)
+                continue
+
+            # 1. Out Filter
             if is_out_row:
                 if not out_checked:
                     self.qtw_movimenti.setRowHidden(row_idx, True)
@@ -273,7 +298,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         logging.info(f"Filters applied: out checked={out_checked}, in checked={in_checked},"
                      f"out range=({d_min}, {d_max}), in range=({a_min}, {a_max}),"
-                     f"Description contains='{desc_text}', Date range=({start_date_str}, {end_date_str})")
+                     f"Description contains='{desc_text}', Date range=({start_date_str}, {end_date_str}),"
+                     f"Blacklist mode=(no_inv: {show_no_inv}, only_inv: {show_only_inv})")
 
     @Slot(tuple)
     def on_qrs_out_valueChanged(self, value):
@@ -303,6 +329,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.qrs_in.setEnabled(checked)
         self._apply_filters()
 
+    @Slot(bool)
+    def on_qrb_toggled(self, checked):
+        if checked:
+            self.filter_timer.start()
+
     @Slot(str)
     def on_qle_description_textChanged(self, text):
         logging.debug(f"Description text changed: {text}")
@@ -321,33 +352,27 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     @staticmethod
     def get_data_source() -> pd.DataFrame:
-        logging.info(f'Loading .xls files from {etica.DATA_DIR}...')
-        _csv_bns, _dfs = etica.load_xls_dataframes_from_import()
-        if not _dfs:
+        logging.info("Loading data pipeline...")
+        _df_all = load_data()
+
+        # Enforce exact column requirements, raising an error directly if something is absent
+        expected_cols = [COL_DATA, COL_PLUS, COL_MINUS, COL_DESCR, COL_INV]
+        missing_cols = [col for col in expected_cols if col not in _df_all.columns]
+
+        if missing_cols:
+            raise RuntimeError(f"Dataframe is missing critical expected columns: {missing_cols}\n.{_df_all.columns}")
+
+        if _df_all.empty:
             raise RuntimeError('No data files found or loaded. Please check DATA_DIR path.')
 
-        src_rows = sum(df.shape[0] for df in _dfs)
-        logging.info(f'Total rows across {len(_dfs)} DataFrames: {src_rows}')
-        for _bn, _df in zip(_csv_bns, _dfs):
-            _fs, _fe = _bn.split('.')[0].split('_')[1:3]
-            logging.info(f'  {_fs} - {_fe} : {_df.shape[0]} rows')
+        # Strip hh:mm:ss from dates: they're always 00:00:00, so we only need the date part.
+        _df_all[COL_DATA] = pd.to_datetime(_df_all[COL_DATA], errors='coerce').dt.strftime('%Y-%m-%d')
 
-        _df_all = etica.merge_dataframes_no_duplicates(_dfs)
-
-        # save now the merged file, since blacklisting will start edit it !!
-        etica.merge_csvs(_csv_bns, _df_all, do_remove=True)
-
-        # Strip hh:mm:ss from dates before populating the table: they're always 00:00:00, so we only need the date part.
-        if not _df_all.empty and 'Data contabile' in _df_all.columns:
-            # Converts the column to pure 'YYYY-MM-DD' strings, discarding time.
-            # Invalid dates or empty cells are gracefully coerced to NaT/NaN.
-            _df_all['Data contabile'] = pd.to_datetime(_df_all['Data contabile'],
-                                                       errors='coerce').dt.strftime('%Y-%m-%d')
         return _df_all
 
 
 def main():
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(format=LOG_FORMAT, level=logging.DEBUG)
     app = QApplication(sys.argv)
     window = MainWindow()
     logging.info("Starting Piggy Bank application")

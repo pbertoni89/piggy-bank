@@ -12,6 +12,7 @@ import matplotlib.dates as mdates
 import plotly.graph_objects as go
 
 _lg = logging.getLogger('etica')
+LOG_FORMAT = '[%(levelname)8s]    %(message)s'
 
 # Constants
 COL_DATA = 'Data contabile'
@@ -20,6 +21,7 @@ COL_PLUS = 'Avere'
 COL_MINUS = 'Dare'
 COL_IMP = 'Importo'
 COL_DESCR = 'Descrizione'
+COL_INV = 'Blacklisted'
 COL_OLS = 'OLS'
 
 FMT_DT = '%Y%m%d'
@@ -53,7 +55,7 @@ def load_data() -> pd.DataFrame:
 
     # 2) Let csv_files be the set of *.csv files (excluding blacklist.csv, merged.csv, and variations)
     # Load them into dfs_list
-    exclude_files = {'blacklist.csv', 'merged.csv', 'merged-forse-immacolato.csv'}
+    exclude_files = {'blacklist.csv', 'merged.csv'}
     csv_files = [p for p in DATA_DIR.glob('*.csv') if p.name not in exclude_files]
 
     dfs_list = []
@@ -63,7 +65,7 @@ def load_data() -> pd.DataFrame:
             if COL_DATA in df_csv.columns:
                 df_csv[COL_DATA] = pd.to_datetime(df_csv[COL_DATA], errors='coerce')
             dfs_list.append(df_csv)
-            _lg.info(f"Loaded {csv_path.name} into DataFrame with {len(df_csv)} rows.")
+            _lg.info(f"Loaded {csv_path.name} into DataFrame with {len(df_csv)} rows")
         except Exception as e:
             _lg.error(f"Could not read {csv_path.name}: {e}")
 
@@ -80,7 +82,7 @@ def load_data() -> pd.DataFrame:
             for idx, dup_row in duplicates.iterrows():
                 _lg.warning(f"Duplicate row found at index {idx}: {dup_row.to_dict()}")
             num_dups = len(duplicates) // 2  # Approximate duplicate pairs
-            _lg.warning(f"Found {num_dups} duplicated rows. Removing them.")
+            _lg.warning(f"Found {num_dups} duplicated rows. Removing them")
             _lg.warning("FIXME this will also remove e.g. two SEPA commissions from the same day !!!")  # FIXME
 
         df_merged = df_merged.drop_duplicates(ignore_index=True)
@@ -103,12 +105,8 @@ def load_data() -> pd.DataFrame:
             _lg.warning(f"Found {nan_mask.sum()} rows in blacklist.csv with both {COL_MINUS} and {COL_PLUS} as NaN. Removing them.")
             df_blacklist = df_blacklist[~nan_mask]
 
-        # Remove the 'Descrizione' column from df_merged
-        if COL_DESCR in df_merged.columns:
-            df_merged = df_merged.drop(columns=[COL_DESCR])
-
-        # 6) Add "Blacklisted" column to df_merged (default 0) and flag matches
-        df_merged['Blacklisted'] = 0
+        # 6) Add blacklist column to df_merged (default 0) and flag matches
+        df_merged[COL_INV] = 0
 
         for _, bl_row in df_blacklist.iterrows():
             # Build matching condition for df_merged based on available non-NaN values
@@ -122,7 +120,7 @@ def load_data() -> pd.DataFrame:
             n_matches = len(matches)
 
             if n_matches == 1:
-                df_merged.loc[cond, 'Blacklisted'] = 1
+                df_merged.loc[cond, COL_INV] = 1
                 _lg.info(f"Blacklisted entry matched: {bl_row[COL_DATA].date()}")
             elif n_matches > 1:
                 raise ValueError(f"Found {n_matches} matches in data for blacklist entry: {bl_row.to_dict()}")
@@ -130,62 +128,9 @@ def load_data() -> pd.DataFrame:
         # If no blacklist exists, ensure uniform structure
         if COL_DESCR in df_merged.columns:
             df_merged = df_merged.drop(columns=[COL_DESCR])
-        df_merged['Blacklisted'] = 0
+        df_merged[COL_INV] = 0
 
     return df_merged
-
-
-def eventually_rename_csv_src_file(p: Path, df: pd.DataFrame) -> str:
-    if (any([p.name.startswith(t) for t in ['movimenti_', 'merged_']])
-            and p.suffix == '.csv'):
-        _lg.warning(f'Won\'t rename an already processed file: {p.name}')
-        return p.name
-    min_date = df[COL_DATA].min().strftime(FMT_DT)
-    max_date = df[COL_DATA].max().strftime(FMT_DT)
-    csv_filename = f'movimenti_{min_date}_{max_date}.csv'
-    p_new = DATA_DIR / csv_filename
-    shutil.move(p, p_new)
-    return p_new.name
-
-
-def load_xls_dataframes_from_import() -> Tuple[List[str], List[pd.DataFrame]]:
-    """
-    Scans for '*.xls' files in the data directory, converts them to CSV,
-    and loads all CSVs into a list of pandas DataFrames.
-    :return A tuple containing a list of CSV base-names and a list of corresponding DataFrames.
-    """
-    csv_bns, dataframes = [], []
-    _lg.info(f'Loading .xls files from {DATA_DIR}...')
-
-    # Convert .xls to .csv
-    for xls_path in DATA_DIR.glob('*.xls'):
-        try:
-            df = pd.read_excel(xls_path)
-            df = df.drop(columns=['Valuta', 'Divisa', 'Causale'], errors='ignore')
-            df.to_csv(xls_path.with_suffix('.csv'), index=False)
-            os.remove(xls_path)
-            _lg.info(f'Converted {xls_path} to CSV and removed original XLS file.')
-        except Exception as e:
-            _lg.error(f'Could not convert {xls_path}: {e}')
-
-    # Load .csv files
-    for csv_path in DATA_DIR.glob('*.csv'):
-        try:
-            if csv_path.name.endswith('blacklist.csv'):
-                _lg.info('Skipping blacklist.csv during loading of dataframes')
-                continue
-            df = pd.read_csv(csv_path)
-            if COL_DATA not in df.columns:
-                raise ValueError(f'Expected column "{COL_DATA}" not found')
-            df[COL_DATA] = pd.to_datetime(df[COL_DATA], errors='coerce')
-            # Rename CSV with date range for clarity
-            bn = eventually_rename_csv_src_file(csv_path, df)
-            csv_bns.append(bn)
-            dataframes.append(df)
-            _lg.info(f'Loaded {csv_path} into DataFrame with {len(df)} rows.')
-        except Exception as e:
-            _lg.error(f'Could not read {csv_path}: {e}')
-    return csv_bns, dataframes
 
 
 def sort_by_data_contabile(df: pd.DataFrame) -> pd.DataFrame:
@@ -207,117 +152,6 @@ def sort_by_data_contabile(df: pd.DataFrame) -> pd.DataFrame:
     except Exception as e:
         _lg.error(f'Could not sort by "{COL_DATA}": {e}')
         return df
-
-
-def merge_dataframes_no_duplicates(ldf: List[pd.DataFrame]) -> pd.DataFrame:
-    """Merges multiple DataFrames and removes duplicate rows."""
-    if not ldf:
-        return pd.DataFrame()
-    merged = pd.concat(ldf, ignore_index=True)
-    merged = merged.drop_duplicates(ignore_index=True)
-    merged = sort_by_data_contabile(merged)
-    _lg.info(f'Merged {len(ldf)} DataFrames into one with {len(merged)} unique rows.')
-    return merged
-
-
-def merge_csvs(l_csv_bns: List[str], df: pd.DataFrame, do_remove: bool) -> None:
-    """Merges CSV files into a single CSV and returns the path.
-
-    The resulting filename is generated from the earliest and latest dates found in
-    the DataFrame column `COL_DATA` using format `movimenti_YYYYMMDD_YYYYMMDD.csv`.
-    If dates are missing the name will contain `unknown_dates`. If the target file
-    already exists a numeric `_vN` suffix is appended to avoid clobbering.
-    Original CSV files listed in `csvs` are removed when possible.
-    """
-
-    # Determine a helpful basename from dates if possible
-    dates = pd.to_datetime(df[COL_DATA], errors='coerce')
-    min_date, max_date = dates.min(), dates.max()
-    min_date, max_date = min_date.strftime(FMT_DT), max_date.strftime(FMT_DT)
-    # bn = f'merged_{min_date}_{max_date}.csv'
-    bn = f'merged.csv'  # Git will be happier without continuous renames
-
-    _lg.info(f'Merging {df.shape[0]} rows into {bn}, from {min_date} to {max_date}')
-    out_csv_path = DATA_DIR / bn
-    if out_csv_path.exists():
-        _lg.warning(f'{bn} already exists. Overwriting')
-    df.to_csv(out_csv_path, index=False)
-
-    # Try to remove the original CSVs; accept Path or str inputs
-    if do_remove:
-        for bn in l_csv_bns:
-            if bn.startswith('merged_') or bn.startswith('blacklist'):
-                _lg.info(f'Skipping removal of {bn} since it looks like a merged file or blacklist')
-                continue
-            p = Path(os.path.join(DATA_DIR, bn))
-            if p.exists():
-                _lg.info(f'Removing source CSV: {bn}')
-                p.unlink()
-            else:
-                _lg.error(f'Could not find {bn} to remove after merging')
-
-
-def load_blacklist() -> pd.DataFrame:
-    in_csv_path = DATA_DIR / 'blacklist.csv'
-    try:
-        if not in_csv_path.exists():
-            raise FileNotFoundError(f'No blacklist.csv found in {DATA_DIR}. No blacklisting will be applied.')
-
-        df_bl = pd.read_csv(in_csv_path)
-        # Ensure required columns exist
-        for col in [COL_DATA, COL_MINUS, COL_PLUS, COL_DESCR]:
-            if col not in df_bl.columns:
-                raise ValueError(f'Expected column "{col}" not found in blacklist.csv')
-        # Convert date column to datetime
-        df_bl[COL_DATA] = pd.to_datetime(df_bl[COL_DATA], errors='coerce')
-        return df_bl
-    except Exception as e:
-        _lg.warning(f'Failed to load blacklist.csv: {e}')
-        return pd.DataFrame(columns=[COL_DATA, COL_MINUS, COL_PLUS, COL_DESCR])
-
-
-def blacklist(df: pd.DataFrame, df_bl: pd.DataFrame, bl_l: list) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """Removes rows matching specific (date, amount) pairs from the DataFrame.
-
-    Returns a tuple of (df_filtered, df_removed) where:
-    - df_filtered: DataFrame with blacklisted entries removed
-    - df_removed: DataFrame containing the removed blacklisted entries
-    """
-    df = df.copy()
-    removed_rows = []
-    tot_bl = 0
-
-    # TODO from df_bl, extract (date_str, amount) pairs for blacklisting
-    _lg.info(f'Applying blacklist with {len(df_bl)} = {len(bl_l)} entries.')
-    _lg.debug(f'Blacklist entries from df_bl:\n{df_bl[[COL_DATA, COL_MINUS]]}')
-    _lg.debug(f'Blacklist entries from bl_l:\n{bl_l}')
-
-    # for _, row in df_bl.iterrows():
-    #   date_str = row[COL_DATA]
-    #   amount = row[COL_MINUS]
-    for date_str, amount in bl_l:
-        _lg.warning(f'Blacklisting entry: {amount} EUR on {date_str}')
-        target_date = pd.to_datetime(date_str)
-        # Keep rows that do NOT match both conditions
-        mask = (df[COL_DATA] == target_date) & (df[COL_MINUS] == amount)
-        # Count matching rows (mask is a boolean Series)
-        matches = df.loc[mask]
-        # noinspection PyTypeChecker
-        n_matches = len(matches)
-        if n_matches != 1:
-            # noinspection PyStringConversionWithoutDunderMethod
-            raise ValueError(f'Blacklist entry ({date_str}, {amount}) found {n_matches} '
-                             f'times in DataFrame; expected 1. Rows:\n{matches}')
-        # Collect removed rows and drop the single matching row
-        removed_rows.append(matches)
-        df = df[~mask]
-        tot_bl -= amount
-    _lg.info(f'Total blacklisted amount: {tot_bl:.2f} EUR')
-
-    df_filtered = sort_by_data_contabile(df.reset_index(drop=True))
-    df_removed = pd.concat(removed_rows, ignore_index=True) if removed_rows else pd.DataFrame()
-
-    return df_filtered, df_removed
 
 
 def compute_importo(df: pd.DataFrame) -> pd.DataFrame:
