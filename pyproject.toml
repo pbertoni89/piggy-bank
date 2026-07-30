@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "piggy-bank"
+version = "0.2.0"
+description = "Environment for JupyterLab"
+readme = "README.md"
+authors = [{ name = "pbertoni89" }]
+license = { text = "Proprietary" }
+requires-python = ">=3.10"
+keywords = ["jupyter",]
+
+# Core runtime dependencies
+dependencies = [
+    # Numerical and data packages
+    "numpy>=1.22.0",
+    "pandas",
+
+    # Plotting
+    "matplotlib",
+    "plotly",
+
+    # ML & GPU Support
+    "scikit-learn",
+
+    # Excel / file formats
+    "openpyxl",
+    "xlrd",
+    "xlwt",
+
+    # Utils
+    "PyYAML",
+    "colorama",
+
+    # HMI
+    "Pyside6"
+]
+
+[project.urls]
+homepage = "https://github.com/pbertoni89/piggy-bank"
+
+[project.optional-dependencies]
+dev = [
+    "ipython",
+    "pytest",
+    "black",
+    "flake8",
+]
+
+[tool.setuptools]
+# Minimal config
