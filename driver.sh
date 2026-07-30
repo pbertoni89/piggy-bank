@@ -9,7 +9,7 @@ function run_designer() {
 
 
 function build_ui() {
-  pushd "${dirRoot}"/piggy_bank/src/ui > /dev/null || return 1
+  pushd "${dirRoot}"/piggy_bank/ui > /dev/null || return 1
   pyside6-uic main_window.ui -o main_window_rc.py || {
     echo "Failed to build UI."
     popd > /dev/null || return 1
@@ -30,29 +30,36 @@ function build_run_ui() {
     return 3
   }
 
-  PYTHONPATH=. python piggy_bank/src/main_window.py
+  PYTHONPATH=. python piggy_bank/main_window.py
   echo "UI exited with code ${?}."
   popd > /dev/null || return 1
 }
 
 
 function usage() {
-  echo "Usage: $0 [-d] [-r] [-b] [-h]"
+  echo "Usage: $0 [-d] [-r] [-b] [-h] [-i]"
   echo "  -d: Run Qt Designer"
   echo "  -r: Build and run the UI"
+  echo "  -i: Run the headless driver"
   echo "  -b: Build the UI"
   echo "  -h: Show this help message"
   exit "${1:-0}"
 }
 
 
-getopts "drbh" opt
+getopts "drbhi" opt
 case ${opt} in
   d)
     run_designer
     ;;
   r)
     build_run_ui
+    ;;
+  i)
+    pushd "${dirRoot}" > /dev/null || return 1
+    PYTHONPATH=. python piggy_bank/driver.py
+    echo "Driver exited with code ${?}."
+    popd > /dev/null || return 1
     ;;
   b)
     build_ui

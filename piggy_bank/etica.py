@@ -27,7 +27,7 @@ FMT_DT_CSV = '%Y-%m-%d'  # Format used in CSV files for dates
 
 # Adjust this path to match your notebook location relative to the data
 # Currently assumes the notebook is in the same folder as the original script
-DATA_DIR = Path(__file__).parent.parent.parent / 'data' / 'etica'
+DATA_DIR = Path(__file__).parent.parent / 'data' / 'etica'
 
 
 def load_data() -> pd.DataFrame:

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from piggy_bank.src.etica import *
+from piggy_bank.etica import *
 
 logging.basicConfig(format='[%(levelname)8s]    %(message)s', level=logging.DEBUG)
 

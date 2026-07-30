@@ -4,8 +4,8 @@ import pandas as pd
 
 from PySide6.QtCore import Slot, QDate, QTimer, Qt
 from PySide6.QtWidgets import QApplication, QMainWindow, QTableWidgetItem, QHeaderView
-from piggy_bank.src.ui.main_window_rc import Ui_MainWindow
-from piggy_bank.src import etica
+from piggy_bank.ui.main_window_rc import Ui_MainWindow
+from piggy_bank import etica
 
 
 class NumericTableWidgetItem(QTableWidgetItem):
