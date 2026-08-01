@@ -2,7 +2,7 @@
 
 from piggy_bank.etica import *
 
-logging.basicConfig(format=LOG_FORMAT, level=logging.DEBUG)
+init_logging(True)
 
 logging.info('Loading data from %s', DATA_DIR)
 

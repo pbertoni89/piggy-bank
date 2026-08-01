@@ -1,8 +1,9 @@
 import sys
 from PySide6.QtCore import Slot, QDate, QTimer, Qt
-from PySide6.QtWidgets import QApplication, QMainWindow, QTableWidgetItem, QHeaderView
+from PySide6.QtWidgets import QApplication, QMainWindow, QTableWidgetItem, QHeaderView, QWidget
 
 from piggy_bank.ui.main_window_rc import Ui_MainWindow
+from piggy_bank.ui.aggr_stats_rc import Ui_AggrStats
 from piggy_bank.etica import *
 
 # Define the new constant for the UI
@@ -21,6 +22,33 @@ class NumericTableWidgetItem(QTableWidgetItem):
             return super().__lt__(other)
 
 
+class AggrStats(QWidget, Ui_AggrStats):
+    """Custom widget to handle aggregation statistics."""
+    def __init__(self, title: str, parent=None):
+        super().__init__(parent)
+        self.setupUi(self)
+        self.qgb.setTitle(title)
+
+    def update_stats(self, values: list):
+        """Calculates statistics and updates labels. Hides widget if no values."""
+        if not values:
+            self.setVisible(False)
+            return
+
+        self.setVisible(True)
+        s = pd.Series(values)
+
+        self.ql_entries.setText(str(len(s)))
+        self.ql_min.setText(f"{s.min():.0f}")
+        self.ql_max.setText(f"{s.max():.0f}")
+        self.ql_sum.setText(f"{s.sum():.0f}")
+        self.ql_median.setText(f"{s.median():.0f}")
+        self.ql_avg.setText(f"{s.mean():.0f}")
+
+        std = s.std()
+        self.ql_std.setText(f"{std:.2f}" if pd.notna(std) else "0.00")
+
+
 # Inherit from QMainWindow FIRST, then the UI class
 # noinspection PyPep8Naming
 class MainWindow(QMainWindow, Ui_MainWindow):
@@ -28,9 +56,19 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         super().__init__()
         self.setupUi(self)
 
+        # Initialize dynamic aggregation widgets
+        self.stats_all = AggrStats("All")
+        self.stats_out = AggrStats("Out")
+        self.stats_in = AggrStats("In")
+
+        # Insert them into the layout (0, 1, 2 indices place them before the spacer)
+        self.qvl_aggr_stats.insertWidget(0, self.stats_all)
+        self.qvl_aggr_stats.insertWidget(1, self.stats_out)
+        self.qvl_aggr_stats.insertWidget(2, self.stats_in)
+
         df = self.get_data_source()
 
-        # Cache column indices dynamically to avoid hardcoding (e.g., 0, 1, 2)
+        # Cache column indices dynamically to avoid hardcoding
         self.idx_data = df.columns.get_loc(COL_DATA)
         self.idx_out = df.columns.get_loc(COL_MINUS)
         self.idx_in = df.columns.get_loc(COL_PLUS)
@@ -140,6 +178,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 else:
                     item = QTableWidgetItem(val_str)
 
+                # Set the tooltip so long text is visible on hover
+                item.setToolTip(val_str)
+
                 # Make the cell read-only
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self.qtw_movimenti.setItem(row_idx, col_idx, item)
@@ -150,6 +191,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     def _apply_filters(self):
         """Unified method to evaluate all ui filters and hide/show table rows dynamically."""
+        logging.debug("Applying filters to qtw_movimenti...")
         out_checked = self.qchk_out.isChecked()
         in_checked = self.qchk_in.isChecked()
         desc_text = self.qle_description.text().lower()
@@ -160,8 +202,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         show_no_inv = self.qrb_inv_no.isChecked()
         show_only_inv = self.qrb_inv_only.isChecked()
 
-        d_min, d_max = self.qrs_out.value()
-        a_min, a_max = self.qrs_in.value()
+        out_min, out_max = self.qrs_out.value()
+        in_min, in_max = self.qrs_in.value()
 
         visible_out = []
         visible_in = []
@@ -198,20 +240,20 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                     continue
                 try:
                     out_val = float(out_val_str)
-                    if not (d_min <= out_val <= d_max):
+                    if not (out_min <= out_val <= out_max):
                         self.qtw_movimenti.setRowHidden(row_idx, True)
                         continue
                 except ValueError:
                     pass  # If parsing fails, skip range filter and show it
 
-            # 2. in Filter
+            # 2. In Filter
             if is_in_row:
                 if not in_checked:
                     self.qtw_movimenti.setRowHidden(row_idx, True)
                     continue
                 try:
                     in_val = float(in_val_str)
-                    if not (a_min <= in_val <= a_max):
+                    if not (in_min <= in_val <= in_max):
                         self.qtw_movimenti.setRowHidden(row_idx, True)
                         continue
                 except ValueError:
@@ -253,51 +295,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                     pass
 
         # --- UPDATE AGGREGATIONS ---
+        self.stats_out.update_stats(visible_out)
+        self.stats_in.update_stats(visible_in)
+        self.stats_all.update_stats(visible_all)
 
-        # 1. OUT (out) Aggregations
-        if not visible_out:
-            self.qgb_aggr_out.setVisible(False)
-        else:
-            self.qgb_aggr_out.setVisible(True)
-            s_out = pd.Series(visible_out)
-            self.ql_aggr_out_entries.setText(str(len(s_out)))
-            self.ql_aggr_out_min.setText(f"{s_out.min():.0f}")
-            self.ql_aggr_out_max.setText(f"{s_out.max():.0f}")
-            self.ql_aggr_out_sum.setText(f"{s_out.sum():.0f}")
-            self.ql_aggr_out_avg.setText(f"{s_out.mean():.0f}")
-            std = s_out.std()
-            self.ql_aggr_out_std.setText(f"{std:.2f}" if pd.notna(std) else "0.00")
-
-        # 2. IN (in) Aggregations
-        if not visible_in:
-            self.qgb_aggr_in.setVisible(False)
-        else:
-            self.qgb_aggr_in.setVisible(True)
-            s_in = pd.Series(visible_in)
-            self.ql_aggr_in_entries.setText(str(len(s_in)))
-            self.ql_aggr_in_min.setText(f"{s_in.min():.0f}")
-            self.ql_aggr_in_max.setText(f"{s_in.max():.0f}")
-            self.ql_aggr_in_sum.setText(f"{s_in.sum():.0f}")
-            self.ql_aggr_in_avg.setText(f"{s_in.mean():.0f}")
-            std = s_in.std()
-            self.ql_aggr_in_std.setText(f"{std:.2f}" if pd.notna(std) else "0.00")
-
-        # 3. ALL (Net) Aggregations
-        if not visible_all:
-            self.qgb_aggr_all.setVisible(False)
-        else:
-            self.qgb_aggr_all.setVisible(True)
-            s_all = pd.Series(visible_all)
-            self.ql_aggr_all_entries.setText(str(len(s_all)))
-            self.ql_aggr_all_min.setText(f"{s_all.min():.0f}")
-            self.ql_aggr_all_max.setText(f"{s_all.max():.0f}")
-            self.ql_aggr_all_sum.setText(f"{s_all.sum():.0f}")
-            self.ql_aggr_all_avg.setText(f"{s_all.mean():.0f}")
-            std = s_all.std()
-            self.ql_aggr_all_std.setText(f"{std:.2f}" if pd.notna(std) else "0.00")
-
-        logging.info(f"Filters applied: out checked={out_checked}, in checked={in_checked},"
-                     f"out range=({d_min}, {d_max}), in range=({a_min}, {a_max}),"
+        logging.info(f"Filters applied: out checked={out_checked}, {in_checked=},"
+                     f"out range=({out_min}, {out_max}), in range=({in_min}, {in_max}),"
                      f"Description contains='{desc_text}', Date range=({start_date_str}, {end_date_str}),"
                      f"Blacklist mode=(no_inv: {show_no_inv}, only_inv: {show_only_inv})")
 
@@ -372,11 +375,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
 
 def main():
-    logging.basicConfig(format=LOG_FORMAT, level=logging.DEBUG)
+    init_logging(True)
     app = QApplication(sys.argv)
     window = MainWindow()
     logging.info("Starting Piggy Bank application")
-    window.show()
+    window.showMaximized()
     logging.info("Piggy Bank application is now running")
     rv = app.exec()
     logging.critical(f"Exiting Piggy Bank application with return value: {rv}")

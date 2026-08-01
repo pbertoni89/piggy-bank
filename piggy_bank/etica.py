@@ -1,18 +1,24 @@
 import os
-import shutil
 import logging
 from pathlib import Path
 
 import pandas as pd
 import numpy as np
 from colorama import Fore
-from typing import List, Tuple
+from typing import  Tuple
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import plotly.graph_objects as go
 
 _lg = logging.getLogger('etica')
-LOG_FORMAT = '[%(levelname)8s]    %(message)s'
+
+def init_logging(also_time: bool, level=logging.DEBUG):
+    fmt = '[%(levelname)8s]    %(message)s'
+    if also_time:
+        fmt = '%(asctime)s.%(msecs)03d ' + fmt
+    logging.basicConfig(format=fmt,
+                        datefmt='%H:%M:%S',
+                        level=level)
 
 # Constants
 COL_DATA = 'Data contabile'

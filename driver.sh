@@ -10,13 +10,20 @@ function run_designer() {
 
 function build_ui() {
   pushd "${dirRoot}"/piggy_bank/ui > /dev/null || return 1
-  pyside6-uic main_window.ui -o main_window_rc.py || {
-    echo "Failed to build UI."
-    popd > /dev/null || return 1
-    return 2
-  }
+  local ui_file
+  local rc_file
+  for ui_file in *.ui; do
+    [[ -f "${ui_file}" ]] && {
+      rc_file="${ui_file%.ui}_rc.py"
+      pyside6-uic "${ui_file}" -o "${rc_file}" || {
+        echo "Failed to build UI for ${ui_file}"
+        popd > /dev/null || return 1
+        return 2
+      }
+    }
+  done
   popd > /dev/null || return 1
-  echo "UI built successfully."
+  echo "UI built successfully"
 }
 
 
@@ -25,7 +32,7 @@ function build_run_ui() {
   pushd "${dirRoot}" > /dev/null || return 1
 
   python -c "import superqt; print(f'superqt version {superqt.__version__} is installed')" || {
-    echo "superqt is not installed. Please install it with 'pip install superqt'."
+    echo "superqt is not installed. Please install it with 'pip install superqt'"
     popd > /dev/null || return 1
     return 3
   }
