@@ -1,0 +1,218 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>FilterTools</class>
+ <widget class="QWidget" name="FilterTools">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>973</width>
+    <height>312</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Form</string>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <item>
+    <layout class="QGridLayout" name="gridLayout">
+     <item row="1" column="2">
+      <widget class="QDateEdit" name="qde_end"/>
+     </item>
+     <item row="0" column="0">
+      <widget class="QRadioButton" name="qrb_plot_line">
+       <property name="text">
+        <string>Line</string>
+       </property>
+       <property name="checked">
+        <bool>true</bool>
+       </property>
+       <attribute name="buttonGroup">
+        <string notr="true">bg_plots</string>
+       </attribute>
+      </widget>
+     </item>
+     <item row="0" column="2">
+      <widget class="QDateEdit" name="qde_start"/>
+     </item>
+     <item row="1" column="1">
+      <widget class="QLabel" name="label_2">
+       <property name="text">
+        <string>To</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+       </property>
+      </widget>
+     </item>
+     <item row="0" column="1">
+      <widget class="QLabel" name="label">
+       <property name="text">
+        <string>From</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="4">
+      <widget class="QRadioButton" name="qrb_bl_only">
+       <property name="text">
+        <string>Only BL</string>
+       </property>
+       <attribute name="buttonGroup">
+        <string notr="true">bg_filter</string>
+       </attribute>
+      </widget>
+     </item>
+     <item row="1" column="0">
+      <widget class="QRadioButton" name="qrb_plot_candle_w">
+       <property name="text">
+        <string>Weekly Candle</string>
+       </property>
+       <attribute name="buttonGroup">
+        <string notr="true">bg_plots</string>
+       </attribute>
+      </widget>
+     </item>
+     <item row="2" column="0">
+      <widget class="QRadioButton" name="qrb_plot_candle_m">
+       <property name="text">
+        <string>Monthly Candle</string>
+       </property>
+       <attribute name="buttonGroup">
+        <string notr="true">bg_plots</string>
+       </attribute>
+      </widget>
+     </item>
+     <item row="2" column="1" colspan="2">
+      <widget class="QLineEdit" name="qle_description">
+       <property name="placeholderText">
+        <string>Filter Description...</string>
+       </property>
+      </widget>
+     </item>
+     <item row="0" column="4">
+      <widget class="QRadioButton" name="qrb_all">
+       <property name="text">
+        <string>All</string>
+       </property>
+       <property name="checked">
+        <bool>true</bool>
+       </property>
+       <attribute name="buttonGroup">
+        <string notr="true">bg_filter</string>
+       </attribute>
+      </widget>
+     </item>
+     <item row="2" column="4">
+      <widget class="QRadioButton" name="qrb_bl_no">
+       <property name="text">
+        <string>No BL</string>
+       </property>
+       <attribute name="buttonGroup">
+        <string notr="true">bg_filter</string>
+       </attribute>
+      </widget>
+     </item>
+     <item row="1" column="5">
+      <widget class="QRadioButton" name="qrb_inv_only">
+       <property name="text">
+        <string>Only INV</string>
+       </property>
+       <attribute name="buttonGroup">
+        <string notr="true">bg_filter</string>
+       </attribute>
+      </widget>
+     </item>
+     <item row="2" column="5">
+      <widget class="QRadioButton" name="qrb_inv_no">
+       <property name="text">
+        <string>No INV</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QGridLayout" name="gridLayout_2">
+     <item row="1" column="3">
+      <widget class="QLabel" name="ql_in_max">
+       <property name="text">
+        <string>&lt;max&gt;</string>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="0">
+      <widget class="QCheckBox" name="qchk_in">
+       <property name="text">
+        <string>In</string>
+       </property>
+       <property name="checked">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item row="0" column="1">
+      <widget class="QLabel" name="ql_out_min">
+       <property name="text">
+        <string>&lt;min&gt;</string>
+       </property>
+      </widget>
+     </item>
+     <item row="0" column="2">
+      <widget class="QRangeSlider" name="qrs_out">
+       <property name="orientation">
+        <enum>Qt::Orientation::Horizontal</enum>
+       </property>
+      </widget>
+     </item>
+     <item row="0" column="0">
+      <widget class="QCheckBox" name="qchk_out">
+       <property name="text">
+        <string>Out</string>
+       </property>
+       <property name="checked">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="1">
+      <widget class="QLabel" name="ql_in_min">
+       <property name="text">
+        <string>&lt;min&gt;</string>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="2">
+      <widget class="QRangeSlider" name="qrs_in">
+       <property name="orientation">
+        <enum>Qt::Orientation::Horizontal</enum>
+       </property>
+      </widget>
+     </item>
+     <item row="0" column="3">
+      <widget class="QLabel" name="ql_out_max">
+       <property name="text">
+        <string>&lt;max&gt;</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <customwidgets>
+  <customwidget>
+   <class>QRangeSlider</class>
+   <extends>QSlider</extends>
+   <header>superqt</header>
+  </customwidget>
+ </customwidgets>
+ <resources/>
+ <connections/>
+ <buttongroups>
+  <buttongroup name="bg_filter"/>
+  <buttongroup name="bg_plots"/>
+ </buttongroups>
+</ui>

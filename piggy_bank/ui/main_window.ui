@@ -44,135 +44,14 @@
        <attribute name="title">
         <string>Ledger</string>
        </attribute>
-       <layout class="QVBoxLayout" name="verticalLayout_3">
+       <layout class="QVBoxLayout" name="verticalLayout_3" stretch="1,4,3">
         <item>
-         <layout class="QGridLayout" name="gridLayout">
-          <item row="1" column="3">
-           <widget class="QRadioButton" name="qrb_inv_only">
-            <property name="text">
-             <string>Only Inv</string>
-            </property>
-           </widget>
-          </item>
-          <item row="0" column="2" colspan="3">
-           <widget class="QLineEdit" name="qle_description">
-            <property name="placeholderText">
-             <string>Filter Description...</string>
-            </property>
-           </widget>
-          </item>
-          <item row="1" column="0">
-           <widget class="QLabel" name="label_2">
-            <property name="text">
-             <string>To</string>
-            </property>
-            <property name="alignment">
-             <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
-            </property>
-           </widget>
-          </item>
-          <item row="1" column="2">
-           <widget class="QRadioButton" name="qrb_all">
-            <property name="text">
-             <string>All</string>
-            </property>
-           </widget>
-          </item>
-          <item row="0" column="0">
-           <widget class="QLabel" name="label">
-            <property name="text">
-             <string>From</string>
-            </property>
-            <property name="alignment">
-             <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
-            </property>
-           </widget>
-          </item>
-          <item row="1" column="1">
-           <widget class="QDateEdit" name="qde_end"/>
-          </item>
-          <item row="0" column="1">
-           <widget class="QDateEdit" name="qde_start"/>
-          </item>
-          <item row="1" column="4">
-           <widget class="QRadioButton" name="qrb_inv_no">
-            <property name="text">
-             <string>No Inv</string>
-            </property>
-           </widget>
-          </item>
-         </layout>
+         <layout class="QHBoxLayout" name="qhl_filter_tools"/>
         </item>
         <item>
-         <layout class="QGridLayout" name="gridLayout_2">
-          <item row="1" column="1">
-           <widget class="QLabel" name="ql_in_min">
-            <property name="text">
-             <string>&lt;min&gt;</string>
-            </property>
-           </widget>
-          </item>
-          <item row="0" column="1">
-           <widget class="QLabel" name="ql_out_min">
-            <property name="text">
-             <string>&lt;min&gt;</string>
-            </property>
-           </widget>
-          </item>
-          <item row="1" column="3">
-           <widget class="QLabel" name="ql_in_max">
-            <property name="text">
-             <string>&lt;max&gt;</string>
-            </property>
-           </widget>
-          </item>
-          <item row="0" column="2">
-           <widget class="QRangeSlider" name="qrs_out">
-            <property name="orientation">
-             <enum>Qt::Orientation::Horizontal</enum>
-            </property>
-           </widget>
-          </item>
-          <item row="1" column="0">
-           <widget class="QCheckBox" name="qchk_in">
-            <property name="text">
-             <string>In</string>
-            </property>
-            <property name="checked">
-             <bool>true</bool>
-            </property>
-           </widget>
-          </item>
-          <item row="0" column="0">
-           <widget class="QCheckBox" name="qchk_out">
-            <property name="text">
-             <string>Out</string>
-            </property>
-            <property name="checked">
-             <bool>true</bool>
-            </property>
-           </widget>
-          </item>
-          <item row="1" column="2">
-           <widget class="QRangeSlider" name="qrs_in">
-            <property name="orientation">
-             <enum>Qt::Orientation::Horizontal</enum>
-            </property>
-           </widget>
-          </item>
-          <item row="0" column="3">
-           <widget class="QLabel" name="ql_out_max">
-            <property name="text">
-             <string>&lt;max&gt;</string>
-            </property>
-           </widget>
-          </item>
-         </layout>
-        </item>
-        <item>
-         <layout class="QHBoxLayout" name="horizontalLayout">
+         <layout class="QHBoxLayout" name="qhl_ledger">
           <item>
-           <widget class="QTableWidget" name="qtw_movimenti">
+           <widget class="QTableWidget" name="qtw_ledger">
             <column>
              <property name="text">
               <string>Date</string>
@@ -193,9 +72,17 @@
               <string>Description</string>
              </property>
             </column>
+            <column>
+             <property name="text">
+              <string>Blacklisted</string>
+             </property>
+            </column>
            </widget>
           </item>
          </layout>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="qhl_plot"/>
         </item>
        </layout>
       </widget>
@@ -233,13 +120,6 @@
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
  </widget>
- <customwidgets>
-  <customwidget>
-   <class>QRangeSlider</class>
-   <extends>QSlider</extends>
-   <header>superqt</header>
-  </customwidget>
- </customwidgets>
  <resources/>
  <connections/>
 </ui>

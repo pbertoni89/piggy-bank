@@ -15,6 +15,7 @@ function build_ui() {
   for ui_file in *.ui; do
     [[ -f "${ui_file}" ]] && {
       rc_file="${ui_file%.ui}_rc.py"
+      echo "Building UI for ${ui_file} -> ${rc_file}"
       pyside6-uic "${ui_file}" -o "${rc_file}" || {
         echo "Failed to build UI for ${ui_file}"
         popd > /dev/null || return 1
@@ -37,7 +38,9 @@ function build_run_ui() {
     return 3
   }
 
+  set -x
   PYTHONPATH=. python piggy_bank/main_window.py
+  { set +x; } 2>/dev/null
   echo "UI exited with code ${?}."
   popd > /dev/null || return 1
 }

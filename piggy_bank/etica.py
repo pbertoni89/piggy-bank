@@ -12,13 +12,17 @@ import plotly.graph_objects as go
 
 _lg = logging.getLogger('etica')
 
-def init_logging(also_time: bool, level=logging.DEBUG):
+def init_logging(also_time: bool, level=logging.DEBUG, coloured: bool = True) -> None:
     fmt = '[%(levelname)8s]    %(message)s'
     if also_time:
         fmt = '%(asctime)s.%(msecs)03d ' + fmt
-    logging.basicConfig(format=fmt,
-                        datefmt='%H:%M:%S',
-                        level=level)
+    if coloured:
+        import coloredlogs
+        coloredlogs.install(fmt=fmt, level=level)
+    else:
+        logging.basicConfig(format=fmt,
+                            datefmt='%H:%M:%S',
+                            level=level)
 
 # Constants
 COL_DATA = 'Data contabile'
