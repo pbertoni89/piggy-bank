@@ -1,6 +1,6 @@
 #!/bin/bash
-dirRoot="$(dirname "${BASH_SOURCE[0]}")"
-source "$dirRoot/.venv/bin/activate"
+dirPackage="$(dirname "${BASH_SOURCE[0]}")"
+source "${dirPackage}/../.venv/bin/activate"
 
 
 function run_designer() {
@@ -9,7 +9,7 @@ function run_designer() {
 
 
 function build_ui() {
-  pushd "${dirRoot}"/piggy_bank/ui > /dev/null || return 1
+  pushd "${dirPackage}"/ui > /dev/null || return 1
   local ui_file
   local rc_file
   for ui_file in *.ui; do
@@ -29,7 +29,7 @@ function build_ui() {
 
 function build_run_ui() {
   build_ui
-  pushd "${dirRoot}" > /dev/null || return 1
+  pushd "${dirPackage}" > /dev/null || return 1
 
   python -c "import superqt; print(f'superqt version {superqt.__version__} is installed')" || {
     echo "superqt is not installed. Please install it with 'pip install superqt'"
@@ -37,8 +37,16 @@ function build_run_ui() {
     return 3
   }
 
-  PYTHONPATH=. python piggy_bank/main_window.py
+  PYTHONPATH=. python main_window.py
   echo "UI exited with code ${?}."
+  popd > /dev/null || return 1
+}
+
+
+function run_driver() {
+  pushd "${dirPackage}" > /dev/null || return 1
+  PYTHONPATH=. python driver.py
+  echo "Driver exited with code ${?}."
   popd > /dev/null || return 1
 }
 
@@ -63,10 +71,7 @@ case ${opt} in
     build_run_ui
     ;;
   i)
-    pushd "${dirRoot}" > /dev/null || return 1
-    PYTHONPATH=. python piggy_bank/driver.py
-    echo "Driver exited with code ${?}."
-    popd > /dev/null || return 1
+    run_driver
     ;;
   b)
     build_ui
