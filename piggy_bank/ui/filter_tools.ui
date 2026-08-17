@@ -130,6 +130,16 @@
        <property name="text">
         <string>No INV</string>
        </property>
+       <attribute name="buttonGroup">
+        <string notr="true">bg_filter</string>
+       </attribute>
+      </widget>
+     </item>
+     <item row="0" column="5">
+      <widget class="QPushButton" name="qpb_reset">
+       <property name="text">
+        <string>Reset Filters</string>
+       </property>
       </widget>
      </item>
     </layout>

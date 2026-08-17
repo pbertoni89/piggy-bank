@@ -26,7 +26,8 @@ def init_logging(also_time: bool, level=logging.DEBUG, coloured: bool = True) ->
 
 # Constants
 COL_DATA = 'Data contabile'
-COL_SALDO = 'Saldo'
+COL_RUN_TOT = 'Running Total'
+COL_GRN_RUN_TOT = 'Grand Running Total'
 COL_PLUS = 'Avere'
 COL_MINUS = 'Dare'
 COL_IMP = 'Importo'
@@ -168,7 +169,7 @@ def compute_importo(df: pd.DataFrame) -> pd.DataFrame:
     """Computes 'Importo' (Credit + Debit) and cumulative 'Saldo'."""
     df = df.copy()
     df[COL_IMP] = df[COL_PLUS].fillna(0) + df[COL_MINUS].fillna(0)
-    df[COL_SALDO] = df[COL_IMP].cumsum()
+    df[COL_RUN_TOT] = df[COL_IMP].cumsum()
     df = df.drop(columns=[COL_IMP], errors='ignore')
     return df
 
@@ -177,26 +178,26 @@ def compute_ols(df: pd.DataFrame) -> Tuple[pd.DataFrame, float, float]:
     """Computes OLS fit of 'Saldo' vs Time."""
     df = df.copy()
     df[COL_DATA] = pd.to_datetime(df[COL_DATA], errors='coerce')
-    df_valid = df.dropna(subset=[COL_DATA, COL_SALDO])
+    df_valid = df.dropna(subset=[COL_DATA, COL_RUN_TOT])
 
     if len(df_valid) < 2:
         _lg.warning('Not enough valid data for OLS fit.')
-        df['OLS'] = float('nan')
+        df[COL_OLS] = float('nan')
         return df, float('nan'), float('nan')
 
     x = df_valid[COL_DATA].map(lambda d: d.toordinal()).values.astype(float)
-    y = df_valid[COL_SALDO].values
+    y = df_valid[COL_RUN_TOT].values
     try:
         m, q = np.polyfit(x, y, 1)
         ols_vals = np.full(len(df), float('nan'))
         mask = df[COL_DATA].notna()
         x_all = df.loc[mask, COL_DATA].map(lambda d: d.toordinal()).values.astype(float)
         ols_vals[mask] = m * x_all + q
-        df['OLS'] = ols_vals
+        df[COL_OLS] = ols_vals
         return df, m, q
     except Exception as e:
         _lg.error(f'OLS fit failed: {e}')
-        df['OLS'] = float('nan')
+        df[COL_OLS] = float('nan')
         return df, float('nan'), float('nan')
 
 
@@ -209,18 +210,18 @@ def plot_saldo_ols(_df1: pd.DataFrame, _df2: pd.DataFrame) -> None:
     fig, ax1 = plt.subplots(figsize=(12, 6))
 
     # Plot df1 (overall balance) in blue
-    ax1.plot(df1[COL_DATA], df1[COL_SALDO], label='Saldo netto', color='tab:blue')
-    ax1.plot(df1[COL_DATA], df1['OLS'], label='OLS fit netto', color='tab:orange', linestyle='--')
+    ax1.plot(df1[COL_DATA], df1[COL_RUN_TOT], label='Saldo netto', color='tab:blue')
+    ax1.plot(df1[COL_DATA], df1[COL_OLS], label='OLS fit netto', color='tab:orange', linestyle='--')
 
     # Plot df2 (investment balance) in green
-    ax1.plot(df2[COL_DATA], df2[COL_SALDO], label='Saldo grezzo', color='tab:green')
-    ax1.plot(df2[COL_DATA], df2['OLS'], label='OLS fit grezzo', color='tab:red', linestyle='--')
+    ax1.plot(df2[COL_DATA], df2[COL_RUN_TOT], label='Saldo grezzo', color='tab:green')
+    ax1.plot(df2[COL_DATA], df2[COL_OLS], label='OLS fit grezzo', color='tab:red', linestyle='--')
 
-    ax1.set_ylabel(COL_SALDO)
+    ax1.set_ylabel(COL_RUN_TOT)
     ax1.legend()
     ax1.grid(True)
 
-    all_saldos = pd.concat([df1[COL_SALDO], df2[COL_SALDO]]).dropna()
+    all_saldos = pd.concat([df1[COL_RUN_TOT], df2[COL_RUN_TOT]]).dropna()
     if not all_saldos.empty:
         max_saldo_ever = all_saldos.max()
         if type(max_saldo_ever) in [np.float64, float]:
@@ -243,28 +244,28 @@ def plot_saldo_ols_interactive(_df_net: pd.DataFrame, _df_all: pd.DataFrame) -> 
     fig = go.Figure()
 
     # Add net balance line
-    fig.add_trace(go.Scatter(x=_df_net[COL_DATA], y=_df_net[COL_SALDO],
+    fig.add_trace(go.Scatter(x=_df_net[COL_DATA], y=_df_net[COL_RUN_TOT],
                              mode='lines', name='Saldo netto',
                              line=dict(color='#1f77b4', width=2)))
 
     # Add net OLS line
-    fig.add_trace(go.Scatter(x=_df_net[COL_DATA], y=_df_net['OLS'],
+    fig.add_trace(go.Scatter(x=_df_net[COL_DATA], y=_df_net[COL_OLS],
                              mode='lines', name='OLS fit netto',
                              line=dict(color='#ff7f0e', width=2, dash='dash')))
 
     # Add all balance line
-    fig.add_trace(go.Scatter(x=_df_all[COL_DATA], y=_df_all[COL_SALDO],
+    fig.add_trace(go.Scatter(x=_df_all[COL_DATA], y=_df_all[COL_RUN_TOT],
                              mode='lines', name='Saldo grezzo',
                              line=dict(color='#2ca02c', width=2)))
 
     # Add all OLS line
-    fig.add_trace(go.Scatter(x=_df_all[COL_DATA], y=_df_all['OLS'],
+    fig.add_trace(go.Scatter(x=_df_all[COL_DATA], y=_df_all[COL_OLS],
                              mode='lines', name='OLS fit grezzo',
                              line=dict(color='#d62728', width=2, dash='dash')))
 
     fig.update_layout(title='Saldo and OLS Fit (Interactive, Zoomable & Hoverable)',
                       xaxis_title='Data contabile',
-                      yaxis_title=COL_SALDO,
+                      yaxis_title=COL_RUN_TOT,
                       hovermode='x unified',
                       template='plotly_white',
                       height=600)
@@ -275,11 +276,11 @@ def compute_candlesticks(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
     """Resamples 'Saldo' to OHLC candlesticks based on timeframe."""
     df_copy = df.copy()
     df_copy[COL_DATA] = pd.to_datetime(df_copy[COL_DATA], errors='coerce')
-    df_copy = df_copy.dropna(subset=[COL_DATA, COL_SALDO])
+    df_copy = df_copy.dropna(subset=[COL_DATA, COL_RUN_TOT])
     df_copy = df_copy.set_index(COL_DATA)
 
     try:
-        rv = df_copy[COL_SALDO].resample(timeframe).agg(
+        rv = df_copy[COL_RUN_TOT].resample(timeframe).agg(
             Open='first',
             High='max',
             Low='min',
@@ -339,7 +340,7 @@ def print_investments_summary(df: pd.DataFrame) -> None:
     _lg.info(df.drop(columns=[COL_DESCR], errors='ignore'))
 
     if not df.empty:
-        saldo_inv = df[COL_SALDO].iloc[-1]
+        saldo_inv = df[COL_RUN_TOT].iloc[-1]
         col = Fore.GREEN if saldo_inv >= 0 else Fore.RED
         saldo_inv = f'{col}{saldo_inv:.2f} EUR{Fore.RESET}'
     else:
@@ -351,8 +352,8 @@ def plot_investments(df: pd.DataFrame) -> None:
     """Plots the 'Saldo' of investment-related transactions over time."""
     if not df.empty:
         fig_inv, ax2 = plt.subplots(figsize=(12, 3))
-        ax2.bar(df[COL_DATA], df[COL_SALDO], color='purple')
-        ax2.set_ylabel(COL_SALDO)
+        ax2.bar(df[COL_DATA], df[COL_RUN_TOT], color='purple')
+        ax2.set_ylabel(COL_RUN_TOT)
         ax2.set_title('Investimenti')
         ax2.grid(True)
         ax2.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=10, maxticks=20))

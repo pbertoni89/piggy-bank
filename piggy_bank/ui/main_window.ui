@@ -44,7 +44,7 @@
        <attribute name="title">
         <string>Ledger</string>
        </attribute>
-       <layout class="QVBoxLayout" name="verticalLayout_3" stretch="1,4,3">
+       <layout class="QVBoxLayout" name="verticalLayout_3" stretch="0,4,4">
         <item>
          <layout class="QHBoxLayout" name="qhl_filter_tools"/>
         </item>
