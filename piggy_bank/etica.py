@@ -149,10 +149,11 @@ def load_data() -> pd.DataFrame:
     # 7) Strip away noisy text in Descrizione. TODO put in a separate config file for easier maintenance
     stripped_parts = [("CARTA N. 416363******7346 - CIRCUITO VISA", ""),
                       ("Pagamenti paesi UE DEL", ""),
-                      ("ADDEBITO DIRETTO CORE RCUR", ""),
+                      ("ADDEBITO DIRETTO CORE RCUR Prg.Car.:", ""),
+                      ("Bonifico - SEPA istantaneo a vs favore", "<BONIF>"),
+                      ("Valuta EUR Paese Italia C/O", ""),
                       ("Bonifico - SEPA istantaneo", "<BONIF>"),
                       ("ADDEBITO BONIFICO DA HOME BANKING", "<BONIF>"),
-                      ("Bonifico - SEPA istantaneo a vs favore", "<BONIF>"),
                       ("BONIFICO A VOSTRO FAVORE", "<BONIF>"),]
     for old, new in stripped_parts:
         df_merged[COL_DESCR] = df_merged[COL_DESCR].str.replace(old, new, regex=False).str.strip()

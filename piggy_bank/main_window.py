@@ -5,8 +5,8 @@ import pandas as pd
 import logging
 import plotly.graph_objects as go
 
-from PySide6.QtCore import Slot
-from PySide6.QtWidgets import QApplication, QMainWindow, QHeaderView
+from PySide6.QtCore import Slot, Qt
+from PySide6.QtWidgets import QApplication, QMainWindow, QTableWidgetItem, QHeaderView
 from piggy_bank.qw_misc import *
 from piggy_bank.ui.main_window_rc import Ui_MainWindow
 from piggy_bank.aggr_stats import AggrStats
@@ -168,6 +168,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         visible_all = []
 
         plot_data = []
+        visible_rows_info = []
         running_saldo = 0.0
 
         for row_idx in range(self.ui_ledger.qtw_ledger.rowCount()):
@@ -250,19 +251,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             except ValueError: i_val = 0.0
 
             imp_val = o_val + i_val
-            running_saldo += imp_val
 
-            # Update the Table UI Running Total Column Cell
-            saldo_item = self.ui_ledger.qtw_ledger.item(row_idx, self.__idx_saldo)
-            if saldo_item:
-                saldo_item.setText(f"{running_saldo:.2f}")
-
-            plot_data.append({
-                COL_DATA: date_val,
-                COL_IMP: imp_val,
-                COL_RUN_TOT: running_saldo,
-                COL_MINUS: o_val,
-                COL_PLUS: i_val
+            # Store visible row info to compute chronological running sum safely
+            visible_rows_info.append({
+                'row_idx': row_idx,
+                'date_val': date_val,
+                'imp_val': imp_val,
+                'o_val': o_val,
+                'i_val': i_val
             })
 
             # Accumulate values for statistical widgets
@@ -274,6 +270,25 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 except ValueError: pass
 
             visible_all.append(imp_val)
+
+        # Sort the passed rows chronologically to ensure accurate Running Total
+        visible_rows_info.sort(key=lambda x: x['date_val'])
+
+        for row_info in visible_rows_info:
+            running_saldo += row_info['imp_val']
+
+            # Update the Table UI Running Total Column Cell mapping back to the correct row_idx
+            saldo_item = self.ui_ledger.qtw_ledger.item(row_info['row_idx'], self.__idx_saldo)
+            if saldo_item:
+                saldo_item.setText(f"{running_saldo:.2f}")
+
+            plot_data.append({
+                COL_DATA: row_info['date_val'],
+                COL_IMP: row_info['imp_val'],
+                COL_RUN_TOT: running_saldo,
+                COL_MINUS: row_info['o_val'],
+                COL_PLUS: row_info['i_val']
+            })
 
         # Update statistical widgets
         self.stats_out.update_stats(visible_out)
@@ -343,6 +358,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if time_bin_str == "Weekly":
             # Group every transaction by 7 days: Mon - Sun
             x_data = dates_dt.dt.day_name()
+
+            # --- SATURDAY SANITY CHECK ---
+            if (x_data == 'Saturday').any():
+                saturday_count = (x_data == 'Saturday').sum()
+                raise ValueError(f"Found {saturday_count} transactions with a Saturday accounting date! Plot quirk suspected.")
+
             category_array = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
             fig_hist_time.add_trace(go.Histogram(
                 x=x_data, y=self.df_plot[COL_IMP], histfunc='sum',
