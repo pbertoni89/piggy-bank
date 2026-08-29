@@ -1,6 +1,9 @@
 # noinspection unresolved-references
 import re
 import sys
+import logging
+import pandas as pd
+import plotly.graph_objects as go
 from PySide6.QtCore import Signal, Slot, QDate, QTimer, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication, QMainWindow, QTableWidgetItem, QHeaderView, QWidget, QLabel, QVBoxLayout
@@ -62,7 +65,6 @@ class FilterTools(QWidget, Ui_FilterTools):
 
     # Custom signal emitted when filters are stable and ready to be applied
     filters_updated = Signal()
-    plots_updated = Signal()
 
     def __init__(self, df: pd.DataFrame, parent=None):
         super().__init__(parent)
@@ -91,10 +93,10 @@ class FilterTools(QWidget, Ui_FilterTools):
 
             if not pd.isna(min_date):
                 self._default_start_date = QDate(min_date.year, min_date.month, min_date.day)
-                self.qde_start.setDate(QDate(min_date.year, min_date.month, min_date.day))
+                self.qde_start.setDate(self._default_start_date)
             if not pd.isna(max_date):
                 self._default_end_date = QDate(max_date.year, max_date.month, max_date.day)
-                self.qde_end.setDate(QDate(max_date.year, max_date.month, max_date.day))
+                self.qde_end.setDate(self._default_end_date)
 
         # Hook up internal signals to internal slots
         self.qrs_out.valueChanged.connect(self._on_qrs_out_valueChanged)
@@ -106,10 +108,6 @@ class FilterTools(QWidget, Ui_FilterTools):
         self.qrb_bl_only.toggled.connect(self._on_bg_filter_toggled)
         self.qrb_inv_only.toggled.connect(self._on_bg_filter_toggled)
         self.qrb_inv_no.toggled.connect(self._on_bg_filter_toggled)
-
-        self.qrb_plot_line.toggled.connect(self._on_bg_plot_toggled)
-        self.qrb_plot_candle_w.toggled.connect(self._on_bg_plot_toggled)
-        self.qrb_plot_candle_m.toggled.connect(self._on_bg_plot_toggled)
 
         self.qle_description.textChanged.connect(self._on_qle_description_textChanged)
         self.qde_start.dateChanged.connect(self._on_qde_start_dateChanged)
@@ -154,7 +152,7 @@ class FilterTools(QWidget, Ui_FilterTools):
         logging.info("Resetting UI filters to startup state...")
 
         # Block signals temporarily to prevent massive UI cascading
-        controls = [self.qrb_all, self.qrb_plot_line, self.qchk_in, self.qchk_out,
+        controls = [self.qrb_all, self.qchk_in, self.qchk_out,
                     self.qle_description, self.qde_start, self.qde_end, self.qrs_in, self.qrs_out]
 
         for widget in controls:
@@ -162,7 +160,6 @@ class FilterTools(QWidget, Ui_FilterTools):
 
         # Restore states
         self.qrb_all.setChecked(True)
-        self.qrb_plot_line.setChecked(True)
         self.qchk_in.setChecked(True)
         self.qchk_out.setChecked(True)
 
@@ -190,7 +187,6 @@ class FilterTools(QWidget, Ui_FilterTools):
 
         # Emit standard signals manually
         self.filters_updated.emit()
-        self.plots_updated.emit()
 
     @Slot(tuple)
     def _on_qrs_out_valueChanged(self, value):
@@ -218,10 +214,6 @@ class FilterTools(QWidget, Ui_FilterTools):
     def _on_bg_filter_toggled(self, checked):
         if checked:
             self.__timer.start()
-
-    def _on_bg_plot_toggled(self, checked):
-        if checked:
-            self.plots_updated.emit()
 
     @Slot(str)
     def _on_qle_description_textChanged(self, text):
@@ -269,10 +261,9 @@ class AggrStats(QWidget, Ui_AggrStats):
 
 
 class WebEnginePlotManager(QWidget):
-    """Encapsulates all Plotly and QWebEngineView generation logic within a dedicated QWidget."""
+    """Encapsulates a single Plotly go.Figure into a QWebEngineView."""
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.df_plot = pd.DataFrame()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -290,62 +281,20 @@ class WebEnginePlotManager(QWidget):
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             layout.addWidget(lbl)
 
-    def set_data(self, plot_data: list):
-        """Stores the list of dicts as a DataFrame for plotting."""
-        self.df_plot = pd.DataFrame(plot_data)
-
-    def render_plot(self, line_checked: bool, candle_w_checked: bool):
-        """Generates the Plotly figure based on the selected mode and sends it to the webview."""
+    def render_figure(self, fig: go.Figure):
+        """Generates the HTML for the provided Plotly figure and sends it to the webview."""
         if not HAS_WEBENGINE or self.web_view is None:
             return
 
-        if self.df_plot.empty:
+        if fig is None:
             self.web_view.setHtml(get_html_centered_message("No data to display"))
             return
 
-        fig = go.Figure()
-
-        if line_checked:
-            # Line graph + OLS
-            df_plot_ols, m, q = compute_ols(self.df_plot)
-
-            fig.add_trace(go.Scatter(x=df_plot_ols[COL_DATA], y=df_plot_ols[COL_RUN_TOT],
-                                     mode='lines', name='Running Total',
-                                     line=dict(color='#1f77b4', width=2)))
-
-            if COL_OLS in df_plot_ols.columns and not df_plot_ols[COL_OLS].isna().all():
-                fig.add_trace(go.Scatter(x=df_plot_ols[COL_DATA], y=df_plot_ols[COL_OLS],
-                                         mode='lines', name=f'OLS Fit\nm = {m:.2f}',
-                                         line=dict(color='#ff7f0e', width=2, dash='dash')))
-
-            fig.update_layout(title='Running Total Over Time', xaxis_title='Date', yaxis_title=COL_RUN_TOT)
-
-        else:
-            # Candlesticks
-            timeframe = 'W' if candle_w_checked else 'ME'
-            df_candle = compute_candlesticks(self.df_plot, timeframe)
-
-            if not df_candle.empty:
-                fig.add_trace(go.Candlestick(x=df_candle['Date'],
-                                             open=df_candle['Open'],
-                                             high=df_candle['High'],
-                                             low=df_candle['Low'],
-                                             close=df_candle['Close'],
-                                             name=f"Candle ({timeframe})"))
-
-            fig.update_layout(title=f'Balance Candlestick Chart ({timeframe})',
-                              xaxis_title='Date',
-                              yaxis_title=COL_RUN_TOT,
-                              xaxis_rangeslider_visible=False)
-
         # We must set autosize=True for dynamic resizing
-        fig.update_layout(template='plotly_dark', margin=dict(l=20, r=20, t=40, b=20), hovermode='x unified', autosize=True)
+        fig.update_layout(template='plotly_dark', margin=dict(l=20, r=20, t=40, b=20), autosize=True)
 
-        # Enforce minor ticks at every 500 units on the Y-Axis
-        fig.update_yaxes(minor=dict(dtick=500, showgrid=True))
-
-        # Generate HTML with default 100% width/height so Plotly's native ResizeObserver remains active
-        raw_html = fig.to_html(include_plotlyjs='cdn')
+        config = {'responsive': True}
+        raw_html = fig.to_html(include_plotlyjs='cdn', full_html=False, config=config)
 
         # Use string replacement to inject styling directly into the <body> tag
         # This removes the white border without breaking Plotly's responsiveness
@@ -372,19 +321,23 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.stats_in = AggrStats("In")
         self.ft = FilterTools(df)
 
-        # Instantiate the Plot Manager as a QWidget with MainWindow as its parent
-        self.plot_manager = WebEnginePlotManager(self)
-
-        # Insert items into corresponding layouts
         self.qvl_aggr_stats.insertWidget(0, self.stats_all)
         self.qvl_aggr_stats.insertWidget(1, self.stats_out)
         self.qvl_aggr_stats.insertWidget(2, self.stats_in)
         self.qhl_filter_tools.addWidget(self.ft)
 
-        # Add the plot manager to tab_plots layout (for max space)
-        # or keep it in qhl_plot inside the ledger tab if desired.
-        # self.tab_plots.layout().addWidget(self.plot_manager)
-        self.qhl_plot.addWidget(self.plot_manager)
+        # Initialize Plot Managers for different layout sections
+        self.plot_line = WebEnginePlotManager(self)
+        self.qhl_plots_line.addWidget(self.plot_line)
+
+        self.plot_hist_import = WebEnginePlotManager(self)
+        self.qhl_plots_histograms_import.addWidget(self.plot_hist_import)
+
+        self.plot_hist_time = WebEnginePlotManager(self)
+        self.qhl_plots_histograms_time.addWidget(self.plot_hist_time)
+
+        self.plot_candles = WebEnginePlotManager(self)
+        self.qhl_plots_candles_plot.addWidget(self.plot_candles)
 
         # Compile the investment regex pattern (Case sensitive match per requirements)
         self.__inv_pattern = re.compile(r'FONDI|PROVENTI|CEDOLE|DEPOSIT')
@@ -416,17 +369,26 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.ft.setup_sliders(df)
         # Enable sorting after population
         self.qtw_ledger.setSortingEnabled(True)
+        # Force initial sorting by 'Data contabile' descending
+        self.qtw_ledger.sortItems(self.__idx_data, Qt.SortOrder.DescendingOrder)
 
         # Connect signals
         self.ft.filters_updated.connect(self._apply_filters)
-        self.ft.plots_updated.connect(self._update_plot)
+
+        # Connect new ComboBox controls directly to plot update function
+        self.qcb_plots_histograms_import.currentIndexChanged.connect(lambda _: self._update_plot())
+        self.qcb_plots_histograms_time.currentIndexChanged.connect(lambda _: self._update_plot())
+        self.qcb_plots_candles_time.currentIndexChanged.connect(lambda _: self._update_plot())
+
+        # DataFrame to store dynamically filtered rows for plotting
+        self.df_plot = pd.DataFrame()
 
         # Initial render
-        logging.info("Applying initial filters to qtw_ledger...")
+        logging.debug("Applying initial filters to qtw_ledger...")
         self._apply_filters()
 
     def _populate_table(self, df: pd.DataFrame):
-        logging.info("Populating qtw_ledger with data...")
+        logging.debug("Populating qtw_ledger with data...")
         # Turn off sorting during population for performance
         self.qtw_ledger.setSortingEnabled(False)
         self.qtw_ledger.setRowCount(df.shape[0])
@@ -454,7 +416,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         # Turn sorting back on
         self.qtw_ledger.setSortingEnabled(True)
-        logging.info(f"Successfully populated {df.shape[0]} rows and {df.shape[1]} columns.")
+        logging.debug(f"Successfully populated {df.shape[0]} rows and {df.shape[1]} columns")
 
     @Slot()
     def _apply_filters(self):
@@ -571,9 +533,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             if saldo_item:
                 saldo_item.setText(f"{running_saldo:.2f}")
 
-            # Queue details for plotting
+            # Re-integrate COL_IMP to pass into self.df_plot for histogram use
             plot_data.append({
                 COL_DATA: date_val,
+                COL_IMP: imp_val,
                 COL_RUN_TOT: running_saldo
             })
 
@@ -597,21 +560,101 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                      f"Description contains='{desc_text}', Date range=({start_date_str}, {end_date_str}),"
                      f"Modes=(no_bl: {show_no_bl}, only_bl: {show_only_bl}, no_inv: {show_no_inv}, only_inv: {show_only_inv})")
 
-        self.plot_manager.set_data(plot_data)
+        self.df_plot = pd.DataFrame(plot_data)
         self._update_plot()
 
-    @Slot()
     def _update_plot(self):
-        line_checked = self.ft.qrb_plot_line.isChecked()
-        candle_w_checked = self.ft.qrb_plot_candle_w.isChecked()
-        self.plot_manager.render_plot(line_checked, candle_w_checked)
+        if self.df_plot.empty:
+            self.plot_line.render_figure(None)
+            self.plot_hist_import.render_figure(None)
+            self.plot_hist_time.render_figure(None)
+            self.plot_candles.render_figure(None)
+            return
+
+        # 1. Main Line Plot + OLS + Importo Line
+        fig_main = go.Figure()
+        df_plot_ols, m, q = compute_ols(self.df_plot)
+
+        fig_main.add_trace(go.Scatter(x=df_plot_ols[COL_DATA], y=df_plot_ols[COL_RUN_TOT],
+                                      mode='lines', name='Running Total',
+                                      line=dict(color='#1f77b4', width=2)))
+
+        fig_main.add_trace(go.Scatter(x=df_plot_ols[COL_DATA], y=df_plot_ols[COL_IMP],
+                                      mode='lines', name='Importo (Row)',
+                                      line=dict(color='#2ca02c', width=1, dash='dot')))
+
+        if COL_OLS in df_plot_ols.columns and not df_plot_ols[COL_OLS].isna().all():
+            fig_main.add_trace(go.Scatter(x=df_plot_ols[COL_DATA], y=df_plot_ols[COL_OLS],
+                                          mode='lines', name=f'OLS Fit<br>m = {m:.2f}',
+                                          line=dict(color='#ff7f0e', width=2, dash='dash')))
+
+        fig_main.update_layout(title='Running Total Over Time', xaxis_title='Date', yaxis_title=COL_RUN_TOT)
+        fig_main.update_yaxes(minor=dict(dtick=500, showgrid=True))
+        fig_main.update_layout(hovermode='x unified')
+        self.plot_line.render_figure(fig_main)
+
+        # 2. Import Histogram
+        import_bin_size_str = self.qcb_plots_histograms_import.currentText()
+        import_bin_size = int(import_bin_size_str) if import_bin_size_str.isdigit() else 100
+
+        fig_hist_import = go.Figure()
+        fig_hist_import.add_trace(go.Histogram(
+            x=self.df_plot[COL_IMP],
+            xbins=dict(size=import_bin_size),
+            name='Importo Freq',
+            marker_color='#1f77b4'
+        ))
+        fig_hist_import.update_layout(title=f'Importo Frequency (Bin = {import_bin_size})', xaxis_title='Importo', yaxis_title='Count', bargap=0.1)
+        self.plot_hist_import.render_figure(fig_hist_import)
+
+        # 3. Time Histogram (Sum of Imports by Date Span)
+        time_bin_str = self.qcb_plots_histograms_time.currentText()
+        if time_bin_str == "Weekly":
+            hist_xbins = dict(size=604800000)  # 1 week in ms
+        elif time_bin_str == "Monthly":
+            hist_xbins = dict(size='M1')       # 1 month
+        else:
+            hist_xbins = dict(size='M12')      # 1 year
+
+        fig_hist_time = go.Figure()
+        fig_hist_time.add_trace(go.Histogram(
+            x=self.df_plot[COL_DATA],
+            y=self.df_plot[COL_IMP],
+            histfunc='sum',
+            name='Importo Sum',
+            xbins=hist_xbins,
+            marker_color='#2ca02c'
+        ))
+        fig_hist_time.update_layout(title=f'Importo Sum over Time (Binned {time_bin_str})', xaxis_title='Date', yaxis_title='Sum of Importo', bargap=0.1)
+        self.plot_hist_time.render_figure(fig_hist_time)
+
+        # 4. Candlesticks
+        candle_time_str = self.qcb_plots_candles_time.currentText()
+        if candle_time_str == "Weekly":
+            timeframe = 'W'
+        elif candle_time_str == "Monthly":
+            timeframe = 'ME'
+        else:
+            timeframe = 'YE'
+
+        fig_candle = go.Figure()
+        df_candle = compute_candlesticks(self.df_plot, timeframe)
+        if not df_candle.empty:
+            fig_candle.add_trace(go.Candlestick(
+                x=df_candle['Date'], open=df_candle['Open'],
+                high=df_candle['High'], low=df_candle['Low'],
+                close=df_candle['Close'], name=f"Candle ({candle_time_str})"
+            ))
+        fig_candle.update_layout(title=f'Balance Candlestick Chart ({candle_time_str})', xaxis_title='Date', yaxis_title=COL_RUN_TOT, xaxis_rangeslider_visible=False, hovermode='x unified')
+        fig_candle.update_yaxes(minor=dict(dtick=500, showgrid=True))
+        self.plot_candles.render_figure(fig_candle)
 
     @staticmethod
     def get_data_source() -> pd.DataFrame:
-        logging.info("Loading data pipeline...")
+        logging.debug("Loading data pipeline...")
         _df_all = load_data()
 
-        # Provide Running Total dynamically into DataFrame right from load stage, dropping Importo
+        # Provide Running Total dynamically into DataFrame right from load stage
         _df_all[COL_RUN_TOT] = (pd.to_numeric(_df_all[COL_PLUS], errors='coerce').fillna(0) + \
                                 pd.to_numeric(_df_all[COL_MINUS], errors='coerce').fillna(0)).cumsum()
 
@@ -633,9 +676,9 @@ def main():
     init_logging(True)
     app = QApplication(sys.argv)
     window = MainWindow()
-    logging.info("Starting Piggy Bank application")
+    logging.debug("Starting Piggy Bank application")
     window.showMaximized()
-    logging.info("Piggy Bank application is now running")
+    logging.debug("Piggy Bank application is now running")
     rv = app.exec()
     logging.critical(f"Exiting Piggy Bank application with return value: {rv}")
     sys.exit(rv)

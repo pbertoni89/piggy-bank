@@ -48,7 +48,7 @@ def load_data() -> pd.DataFrame:
     https://gemini.google.com/app/9e9e957a6d672e51
     Executes the full data loading, conversion, merging, and blacklisting pipeline.
     """
-    _lg.info(f"Starting data load pipeline from {DATA_DIR}")
+    _lg.debug(f"Starting data load pipeline from {DATA_DIR}")
 
     # 1) Retrieve all *.xls files, convert to *.csv, and delete the original xls upon success
     for xls_path in DATA_DIR.glob('*.xls'):
@@ -102,21 +102,22 @@ def load_data() -> pd.DataFrame:
     # 4) Rewrite merged.csv as the dumping of df_merged
     out_csv_path = DATA_DIR / 'merged.csv'
     df_merged.to_csv(out_csv_path, index=False)
-    _lg.info(f"Dumped merged data ({len(df_merged)} rows) to {out_csv_path.name}")
+    _lg.debug(f"Dumped merged data ({len(df_merged)} rows) to {out_csv_path.name}")
 
     # 5) Process blacklist.csv if it exists
     blacklist_path = DATA_DIR / 'blacklist.csv'
     if blacklist_path.exists():
         df_blacklist = pd.read_csv(blacklist_path)
+        _lg.debug(f"Loaded blacklist.csv with {len(df_blacklist)} rows")
         df_blacklist[COL_DATA] = pd.to_datetime(df_blacklist[COL_DATA], errors='coerce')
 
         # If a row has both Dare and Avere as NaN, log a warning and remove it
         nan_mask = df_blacklist[COL_MINUS].isna() & df_blacklist[COL_PLUS].isna()
         if nan_mask.any():
-            _lg.warning(f"Found {nan_mask.sum()} rows in blacklist.csv with both {COL_MINUS} and {COL_PLUS} as NaN. Removing them.")
+            _lg.error(f"Found {nan_mask.sum()} rows in blacklist.csv with both {COL_MINUS} and {COL_PLUS} as NaN. Removing them")
             df_blacklist = df_blacklist[~nan_mask]
 
-        # 6) Add blacklist column to df_merged (default 0) and flag matches
+        # Add blacklist column to df_merged (default 0) and flag matches
         df_merged[COL_INV] = 0
 
         for _, bl_row in df_blacklist.iterrows():
@@ -132,15 +133,29 @@ def load_data() -> pd.DataFrame:
 
             if n_matches == 1:
                 df_merged.loc[cond, COL_INV] = 1
-                _lg.info(f"Blacklisted entry matched: {bl_row[COL_DATA].date()}")
+                descr, plus, minus = bl_row[COL_DESCR], bl_row[COL_PLUS], bl_row[COL_MINUS]
+                imp = f"{(plus if pd.notna(plus) else minus)} EUR"
+                _lg.info(f"Blacklisted entry matched: {bl_row[COL_DATA].date()}, {imp}, {descr}")
             elif n_matches > 1:
                 raise ValueError(f"Found {n_matches} matches in data for blacklist entry: {bl_row.to_dict()}")
+            else:
+                _lg.error(f"No match found in data for blacklist entry: {bl_row.to_dict()}")
     else:
         # If no blacklist exists, ensure uniform structure
         if COL_DESCR in df_merged.columns:
             df_merged = df_merged.drop(columns=[COL_DESCR])
         df_merged[COL_INV] = 0
 
+    # 7) Strip away noisy text in Descrizione. TODO put in a separate config file for easier maintenance
+    stripped_parts = [("CARTA N. 416363******7346 - CIRCUITO VISA", ""),
+                      ("Pagamenti paesi UE DEL", ""),
+                      ("ADDEBITO DIRETTO CORE RCUR", ""),
+                      ("Bonifico - SEPA istantaneo", "<BONIF>"),
+                      ("ADDEBITO BONIFICO DA HOME BANKING", "<BONIF>"),
+                      ("Bonifico - SEPA istantaneo a vs favore", "<BONIF>"),
+                      ("BONIFICO A VOSTRO FAVORE", "<BONIF>"),]
+    for old, new in stripped_parts:
+        df_merged[COL_DESCR] = df_merged[COL_DESCR].str.replace(old, new, regex=False).str.strip()
     return df_merged
 
 

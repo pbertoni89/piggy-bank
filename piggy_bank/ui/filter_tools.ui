@@ -16,46 +16,44 @@
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
     <layout class="QGridLayout" name="gridLayout">
-     <item row="1" column="2">
-      <widget class="QDateEdit" name="qde_end"/>
-     </item>
-     <item row="0" column="0">
-      <widget class="QRadioButton" name="qrb_plot_line">
+     <item row="2" column="3">
+      <widget class="QRadioButton" name="qrb_bl_no">
        <property name="text">
-        <string>Line</string>
-       </property>
-       <property name="checked">
-        <bool>true</bool>
+        <string>No BL</string>
        </property>
        <attribute name="buttonGroup">
-        <string notr="true">bg_plots</string>
+        <string notr="true">bg_filter</string>
        </attribute>
       </widget>
      </item>
-     <item row="0" column="2">
-      <widget class="QDateEdit" name="qde_start"/>
-     </item>
-     <item row="1" column="1">
-      <widget class="QLabel" name="label_2">
+     <item row="2" column="4">
+      <widget class="QRadioButton" name="qrb_inv_no">
        <property name="text">
-        <string>To</string>
+        <string>No INV</string>
        </property>
-       <property name="alignment">
-        <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
-       </property>
+       <attribute name="buttonGroup">
+        <string notr="true">bg_filter</string>
+       </attribute>
       </widget>
      </item>
      <item row="0" column="1">
-      <widget class="QLabel" name="label">
-       <property name="text">
-        <string>From</string>
-       </property>
-       <property name="alignment">
-        <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+      <widget class="QDateEdit" name="qde_start"/>
+     </item>
+     <item row="2" column="0" colspan="2">
+      <widget class="QLineEdit" name="qle_description">
+       <property name="placeholderText">
+        <string>Filter Description...</string>
        </property>
       </widget>
      </item>
-     <item row="1" column="4">
+     <item row="0" column="4">
+      <widget class="QPushButton" name="qpb_reset">
+       <property name="text">
+        <string>Reset Filters</string>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="3">
       <widget class="QRadioButton" name="qrb_bl_only">
        <property name="text">
         <string>Only BL</string>
@@ -65,34 +63,7 @@
        </attribute>
       </widget>
      </item>
-     <item row="1" column="0">
-      <widget class="QRadioButton" name="qrb_plot_candle_w">
-       <property name="text">
-        <string>Weekly Candle</string>
-       </property>
-       <attribute name="buttonGroup">
-        <string notr="true">bg_plots</string>
-       </attribute>
-      </widget>
-     </item>
-     <item row="2" column="0">
-      <widget class="QRadioButton" name="qrb_plot_candle_m">
-       <property name="text">
-        <string>Monthly Candle</string>
-       </property>
-       <attribute name="buttonGroup">
-        <string notr="true">bg_plots</string>
-       </attribute>
-      </widget>
-     </item>
-     <item row="2" column="1" colspan="2">
-      <widget class="QLineEdit" name="qle_description">
-       <property name="placeholderText">
-        <string>Filter Description...</string>
-       </property>
-      </widget>
-     </item>
-     <item row="0" column="4">
+     <item row="0" column="3">
       <widget class="QRadioButton" name="qrb_all">
        <property name="text">
         <string>All</string>
@@ -105,17 +76,30 @@
        </attribute>
       </widget>
      </item>
-     <item row="2" column="4">
-      <widget class="QRadioButton" name="qrb_bl_no">
+     <item row="1" column="0">
+      <widget class="QLabel" name="label_2">
        <property name="text">
-        <string>No BL</string>
+        <string>To</string>
        </property>
-       <attribute name="buttonGroup">
-        <string notr="true">bg_filter</string>
-       </attribute>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+       </property>
       </widget>
      </item>
-     <item row="1" column="5">
+     <item row="0" column="0">
+      <widget class="QLabel" name="label">
+       <property name="text">
+        <string>From</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="1">
+      <widget class="QDateEdit" name="qde_end"/>
+     </item>
+     <item row="1" column="4">
       <widget class="QRadioButton" name="qrb_inv_only">
        <property name="text">
         <string>Only INV</string>
@@ -123,23 +107,6 @@
        <attribute name="buttonGroup">
         <string notr="true">bg_filter</string>
        </attribute>
-      </widget>
-     </item>
-     <item row="2" column="5">
-      <widget class="QRadioButton" name="qrb_inv_no">
-       <property name="text">
-        <string>No INV</string>
-       </property>
-       <attribute name="buttonGroup">
-        <string notr="true">bg_filter</string>
-       </attribute>
-      </widget>
-     </item>
-     <item row="0" column="5">
-      <widget class="QPushButton" name="qpb_reset">
-       <property name="text">
-        <string>Reset Filters</string>
-       </property>
       </widget>
      </item>
     </layout>
