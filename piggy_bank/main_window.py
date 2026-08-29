@@ -1,27 +1,17 @@
 # noinspection unresolved-references
 import re
 import sys
+import pandas as pd
+import logging
+import plotly.graph_objects as go
 
-from PySide6.QtCore import Slot, Qt
-from PySide6.QtWidgets import QApplication, QMainWindow, QTableWidgetItem, QHeaderView
-
+from PySide6.QtCore import Slot
+from PySide6.QtWidgets import QApplication, QMainWindow, QHeaderView
+from piggy_bank.qw_misc import *
 from piggy_bank.ui.main_window_rc import Ui_MainWindow
-from piggy_bank.qw_webeng_plot_mngr import WebEnginePlotManager
-from piggy_bank.qw_aggr_stats import AggrStats
-from piggy_bank.qw_filter_tools import FilterTools
-
+from piggy_bank.aggr_stats import AggrStats
+from piggy_bank.filter_tools import FilterTools
 from piggy_bank.etica import *
-
-
-class NumericTableWidgetItem(QTableWidgetItem):
-    """Custom TableWidgetItem that sorts numerically instead of alphabetically."""
-    def __lt__(self, other):
-        try:
-            val1 = float(self.text().strip()) if self.text().strip() else 0.0
-            val2 = float(other.text().strip()) if other.text().strip() else 0.0
-            return val1 < val2
-        except ValueError:
-            return super().__lt__(other)
 
 
 # noinspection PyPep8Naming
@@ -30,39 +20,52 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         super().__init__()
         self.setupUi(self)
 
+        # Instantiate decoupled UI components
+        self.ui_ledger = Ledger(self)
+        self.ui_plots_lines = PlotsLines(self)
+        self.ui_plots_stats = PlotsStats(self)
+
+        # Add decoupled widgets to the MainWindow's tab layouts
+        self.ql_ledger.addWidget(self.ui_ledger)
+        self.ql_plots_lines.addWidget(self.ui_plots_lines)
+        self.ql_plots_stats.addWidget(self.ui_plots_stats)
+
         df = self.get_data_source()
 
-        # Initialize dynamic widgets
+        # Initialise dynamic widgets
         self.stats_all = AggrStats("All")
         self.stats_out = AggrStats("Out")
         self.stats_in = AggrStats("In")
         self.ft = FilterTools(df)
 
+        # Main window layouts
         self.qvl_aggr_stats.insertWidget(0, self.stats_all)
         self.qvl_aggr_stats.insertWidget(1, self.stats_out)
         self.qvl_aggr_stats.insertWidget(2, self.stats_in)
-        self.qhl_filter_tools.addWidget(self.ft)
 
-        # Initialize Plot Managers for different layout sections
+        # Ledger sub-widget layouts
+        self.ui_ledger.ql_filter_tools.addWidget(self.ft)
+
+        # Initialise Plot Managers for different layout sections
         self.plot_line = WebEnginePlotManager(self)
-        self.qhl_plots_line.addWidget(self.plot_line)
+        self.ui_plots_lines.ql_line.addWidget(self.plot_line)
 
         self.plot_hist_import = WebEnginePlotManager(self)
-        self.qhl_plots_histograms_import.addWidget(self.plot_hist_import)
+        self.ui_plots_stats.ql_histograms_import.addWidget(self.plot_hist_import)
 
         self.plot_hist_time = WebEnginePlotManager(self)
-        self.qhl_plots_histograms_time.addWidget(self.plot_hist_time)
+        self.ui_plots_stats.ql_histograms_time.addWidget(self.plot_hist_time)
 
         self.plot_box_out = WebEnginePlotManager(self)
-        self.qvl_plots_histograms_box_whiskers.addWidget(self.plot_box_out)
+        self.ui_plots_stats.ql_box_whiskers_out.addWidget(self.plot_box_out)
 
         self.plot_box_in = WebEnginePlotManager(self)
-        self.qvl_plots_histograms_box_whiskers.addWidget(self.plot_box_in)
+        self.ui_plots_stats.ql_box_whiskers_in.addWidget(self.plot_box_in)
 
         self.plot_candles = WebEnginePlotManager(self)
-        self.qhl_plots_candles_plot.addWidget(self.plot_candles)
+        self.ui_plots_lines.ql_candle.addWidget(self.plot_candles)
 
-        # Compile the investment regex pattern (Case sensitive match per requirements)
+        # Compile the investment regex pattern
         self.__inv_pattern = re.compile(r'FONDI|PROVENTI|CEDOLE|DEPOSIT')
 
         # Cache column indices dynamically to avoid hardcoding
@@ -76,7 +79,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._populate_table(df)
 
         # Configure Header layout
-        header = self.qtw_ledger.horizontalHeader()
+        header = self.ui_ledger.qtw_ledger.horizontalHeader()
         header.setSectionResizeMode(self.__idx_data, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(self.__idx_out, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(self.__idx_in, QHeaderView.ResizeMode.Fixed)
@@ -84,24 +87,25 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         header.setSectionResizeMode(self.__idx_inv, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(self.__idx_saldo, QHeaderView.ResizeMode.Fixed)
 
-        self.qtw_ledger.setColumnWidth(self.__idx_out, 100)
-        self.qtw_ledger.setColumnWidth(self.__idx_in, 100)
-        self.qtw_ledger.setColumnWidth(self.__idx_saldo, 100)
+        self.ui_ledger.qtw_ledger.setColumnWidth(self.__idx_out, 100)
+        self.ui_ledger.qtw_ledger.setColumnWidth(self.__idx_in, 100)
+        self.ui_ledger.qtw_ledger.setColumnWidth(self.__idx_saldo, 100)
 
         # Setup range sliders internally in FilterTools
         self.ft.setup_sliders(df)
+
         # Enable sorting after population
-        self.qtw_ledger.setSortingEnabled(True)
+        self.ui_ledger.qtw_ledger.setSortingEnabled(True)
         # Force initial sorting by 'Data contabile' descending
-        self.qtw_ledger.sortItems(self.__idx_data, Qt.SortOrder.DescendingOrder)
+        self.ui_ledger.qtw_ledger.sortItems(self.__idx_data, Qt.SortOrder.DescendingOrder)
 
         # Connect signals
         self.ft.filters_updated.connect(self._apply_filters)
 
         # Connect new ComboBox controls directly to plot update function
-        self.qcb_plots_histograms_import.currentIndexChanged.connect(lambda _: self._update_plot())
-        self.qcb_plots_histograms_time.currentIndexChanged.connect(lambda _: self._update_plot())
-        self.qcb_plots_candles_time.currentIndexChanged.connect(lambda _: self._update_plot())
+        self.ui_plots_stats.qcb_plots_histograms_import.currentIndexChanged.connect(lambda _: self._update_plot())
+        self.ui_plots_stats.qcb_plots_histograms_time.currentIndexChanged.connect(lambda _: self._update_plot())
+        self.ui_plots_lines.qcb_candles_time.currentIndexChanged.connect(lambda _: self._update_plot())
 
         # DataFrame to store dynamically filtered rows for plotting
         self.df_plot = pd.DataFrame()
@@ -113,10 +117,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def _populate_table(self, df: pd.DataFrame):
         logging.debug("Populating qtw_ledger with data...")
         # Turn off sorting during population for performance
-        self.qtw_ledger.setSortingEnabled(False)
-        self.qtw_ledger.setRowCount(df.shape[0])
-        self.qtw_ledger.setColumnCount(df.shape[1])
-        self.qtw_ledger.setHorizontalHeaderLabels([str(col) for col in df.columns])
+        self.ui_ledger.qtw_ledger.setSortingEnabled(False)
+        self.ui_ledger.qtw_ledger.setRowCount(df.shape[0])
+        self.ui_ledger.qtw_ledger.setColumnCount(df.shape[1])
+        self.ui_ledger.qtw_ledger.setHorizontalHeaderLabels([str(col) for col in df.columns])
 
         for row_idx, row in enumerate(df.itertuples(index=False)):
             for col_idx, value in enumerate(row):
@@ -135,10 +139,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 # Set the tooltip so long text is visible on hover, and make the cell read-only
                 item.setToolTip(val_str)
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                self.qtw_ledger.setItem(row_idx, col_idx, item)
+                self.ui_ledger.qtw_ledger.setItem(row_idx, col_idx, item)
 
         # Turn sorting back on
-        self.qtw_ledger.setSortingEnabled(True)
+        self.ui_ledger.qtw_ledger.setSortingEnabled(True)
         logging.debug(f"Successfully populated {df.shape[0]} rows and {df.shape[1]} columns")
 
     @Slot()
@@ -166,12 +170,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         plot_data = []
         running_saldo = 0.0
 
-        for row_idx in range(self.qtw_ledger.rowCount()):
-            date_item = self.qtw_ledger.item(row_idx, self.__idx_data)
-            out_item = self.qtw_ledger.item(row_idx, self.__idx_out)
-            in_item = self.qtw_ledger.item(row_idx, self.__idx_in)
-            desc_item = self.qtw_ledger.item(row_idx, self.__idx_desc)
-            bl_item = self.qtw_ledger.item(row_idx, self.__idx_inv)
+        for row_idx in range(self.ui_ledger.qtw_ledger.rowCount()):
+            date_item = self.ui_ledger.qtw_ledger.item(row_idx, self.__idx_data)
+            out_item = self.ui_ledger.qtw_ledger.item(row_idx, self.__idx_out)
+            in_item = self.ui_ledger.qtw_ledger.item(row_idx, self.__idx_in)
+            desc_item = self.ui_ledger.qtw_ledger.item(row_idx, self.__idx_desc)
+            bl_item = self.ui_ledger.qtw_ledger.item(row_idx, self.__idx_inv)
 
             date_val = date_item.text() if date_item else ""
             out_val_str = out_item.text().strip() if out_item else ""
@@ -189,74 +193,70 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
             # Filter checks
             if show_no_bl and bl_val == 1:
-                self.qtw_ledger.setRowHidden(row_idx, True)
+                self.ui_ledger.qtw_ledger.setRowHidden(row_idx, True)
                 continue
             if show_only_bl and bl_val == 0:
-                self.qtw_ledger.setRowHidden(row_idx, True)
+                self.ui_ledger.qtw_ledger.setRowHidden(row_idx, True)
                 continue
 
             if show_no_inv and is_inv:
-                self.qtw_ledger.setRowHidden(row_idx, True)
+                self.ui_ledger.qtw_ledger.setRowHidden(row_idx, True)
                 continue
             if show_only_inv and not is_inv:
-                self.qtw_ledger.setRowHidden(row_idx, True)
+                self.ui_ledger.qtw_ledger.setRowHidden(row_idx, True)
                 continue
 
             if is_out_row:
                 if not out_checked:
-                    self.qtw_ledger.setRowHidden(row_idx, True)
+                    self.ui_ledger.qtw_ledger.setRowHidden(row_idx, True)
                     continue
                 try:
                     if not (out_min <= float(out_val_str) <= out_max):
-                        self.qtw_ledger.setRowHidden(row_idx, True)
+                        self.ui_ledger.qtw_ledger.setRowHidden(row_idx, True)
                         continue
                 except ValueError: pass
 
             if is_in_row:
                 if not in_checked:
-                    self.qtw_ledger.setRowHidden(row_idx, True)
+                    self.ui_ledger.qtw_ledger.setRowHidden(row_idx, True)
                     continue
                 try:
                     if not (in_min <= float(in_val_str) <= in_max):
-                        self.qtw_ledger.setRowHidden(row_idx, True)
+                        self.ui_ledger.qtw_ledger.setRowHidden(row_idx, True)
                         continue
                 except ValueError: pass
 
             if desc_text and desc_text not in desc_val_lower:
-                self.qtw_ledger.setRowHidden(row_idx, True)
+                self.ui_ledger.qtw_ledger.setRowHidden(row_idx, True)
                 continue
 
             if date_val.strip():
                 try:
                     row_date = pd.to_datetime(date_val).strftime(FMT_DT_CSV)
                     if row_date < start_date_str or row_date > end_date_str:
-                        self.qtw_ledger.setRowHidden(row_idx, True)
+                        self.ui_ledger.qtw_ledger.setRowHidden(row_idx, True)
                         continue
                 except Exception:
                     pass
 
             # Passed all filters -> Make visible & Collect dynamic data
-            self.qtw_ledger.setRowHidden(row_idx, False)
+            self.ui_ledger.qtw_ledger.setRowHidden(row_idx, False)
 
             # Recalculate dynamic Importo for running totals and plotting
-            try:
-                o_val = float(out_val_str)
-            except ValueError:
-                o_val = 0.0
-            try:
-                i_val = float(in_val_str)
-            except ValueError:
-                i_val = 0.0
+            try: o_val = float(out_val_str)
+            except ValueError: o_val = 0.0
+
+            try: i_val = float(in_val_str)
+            except ValueError: i_val = 0.0
 
             imp_val = o_val + i_val
             running_saldo += imp_val
 
             # Update the Table UI Running Total Column Cell
-            saldo_item = self.qtw_ledger.item(row_idx, self.__idx_saldo)
+            saldo_item = self.ui_ledger.qtw_ledger.item(row_idx, self.__idx_saldo)
             if saldo_item:
                 saldo_item.setText(f"{running_saldo:.2f}")
 
-            # Re-integrate COL_IMP to pass into self.df_plot for histogram use
             plot_data.append({
                 COL_DATA: date_val,
                 COL_IMP: imp_val,
@@ -275,7 +275,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
             visible_all.append(imp_val)
 
-        # Update Aggregations & Plot
+        # Update statistical widgets
         self.stats_out.update_stats(visible_out)
         self.stats_in.update_stats(visible_in)
         self.stats_all.update_stats(visible_all)
@@ -299,7 +299,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.plot_box_in.render_figure(None)
             return
 
-        # 1. Main Line Plot + OLS + Importo Line (Now unconditionally rendered)
+        # 1. Main Line Plot
         fig_main = go.Figure()
         df_plot_ols, m, q = compute_ols(self.df_plot)
 
@@ -322,7 +322,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.plot_line.render_figure(fig_main)
 
         # 2. Import Histogram
-        import_bin_size_str = self.qcb_plots_histograms_import.currentText()
+        import_bin_size_str = self.ui_plots_stats.qcb_plots_histograms_import.currentText()
         import_bin_size = int(import_bin_size_str) if import_bin_size_str.isdigit() else 100
 
         fig_hist_import = go.Figure()
@@ -336,7 +336,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.plot_hist_import.render_figure(fig_hist_import)
 
         # 3. Time Histogram (Periodic/Seasonal Binning)
-        time_bin_str = self.qcb_plots_histograms_time.currentText()
+        time_bin_str = self.ui_plots_stats.qcb_plots_histograms_time.currentText()
         dates_dt = pd.to_datetime(self.df_plot[COL_DATA])
         fig_hist_time = go.Figure()
 
@@ -345,11 +345,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             x_data = dates_dt.dt.day_name()
             category_array = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
             fig_hist_time.add_trace(go.Histogram(
-                x=x_data,
-                y=self.df_plot[COL_IMP],
-                histfunc='sum',
-                name='Importo Sum',
-                marker_color='#2ca02c'
+                x=x_data, y=self.df_plot[COL_IMP], histfunc='sum',
+                name='Importo Sum', marker_color='#2ca02c'
             ))
             fig_hist_time.update_xaxes(categoryorder='array', categoryarray=category_array)
             title_text = 'Importo Sum by Day of Week (Mon-Sun)'
@@ -359,26 +356,20 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             # Group every transaction by 31 days: 1 - 31
             x_data = dates_dt.dt.day
             fig_hist_time.add_trace(go.Histogram(
-                x=x_data,
-                y=self.df_plot[COL_IMP],
-                histfunc='sum',
-                name='Importo Sum',
-                xbins=dict(start=0.5, end=31.5, size=1),
+                x=x_data, y=self.df_plot[COL_IMP], histfunc='sum',
+                name='Importo Sum', xbins=dict(start=0.5, end=31.5, size=1),
                 marker_color='#2ca02c'
             ))
             fig_hist_time.update_xaxes(tickmode='linear', dtick=1)
             title_text = 'Importo Sum by Day of Month (1-31)'
             xaxis_title = 'Day of Month'
 
-        else: # Yearly
+        else:
             # Group every transaction by 12 months: 1 - 12
             x_data = dates_dt.dt.month
             fig_hist_time.add_trace(go.Histogram(
-                x=x_data,
-                y=self.df_plot[COL_IMP],
-                histfunc='sum',
-                name='Importo Sum',
-                xbins=dict(start=0.5, end=12.5, size=1),
+                x=x_data, y=self.df_plot[COL_IMP], histfunc='sum',
+                name='Importo Sum', xbins=dict(start=0.5, end=12.5, size=1),
                 marker_color='#2ca02c'
             ))
             fig_hist_time.update_xaxes(tickmode='linear', dtick=1)
@@ -389,7 +380,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.plot_hist_time.render_figure(fig_hist_time)
 
         # 4. Candlesticks
-        candle_time_str = self.qcb_plots_candles_time.currentText()
+        candle_time_str = self.ui_plots_lines.qcb_candles_time.currentText()
         if candle_time_str == "Weekly":
             timeframe = 'W'
         elif candle_time_str == "Monthly":
@@ -410,13 +401,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.plot_candles.render_figure(fig_candle)
 
         # 5. Box and Whiskers (Dare & Avere)
-        # Plot Expenses (Dare / Out)
         fig_box_out = go.Figure()
         expenses_series = self.df_plot[self.df_plot[COL_MINUS] != 0][COL_MINUS]
         fig_box_out.add_trace(go.Box(
             y=expenses_series,
             name='Expenses (Dare)',
-            marker_color='#d62728'  # Red for expenses
+            marker_color='#d62728'
         ))
         fig_box_out.update_layout(
             title='Expenses Distribution',
@@ -425,13 +415,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         )
         self.plot_box_out.render_figure(fig_box_out)
 
-        # Plot Incomes (Avere / In)
         fig_box_in = go.Figure()
         incomes_series = self.df_plot[self.df_plot[COL_PLUS] != 0][COL_PLUS]
         fig_box_in.add_trace(go.Box(
             y=incomes_series,
             name='Incomes (Avere)',
-            marker_color='#2ca02c'  # Green for incomes
+            marker_color='#2ca02c'
         ))
         fig_box_in.update_layout(
             title='Incomes Distribution',

@@ -2,7 +2,7 @@ import logging
 import plotly.graph_objects as go
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout
+from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout, QTableWidgetItem
 from PySide6.QtGui import QColor
 
 try:
@@ -11,6 +11,11 @@ try:
     HAS_WEBENGINE = True
 except ImportError:
     HAS_WEBENGINE = False
+
+
+from piggy_bank.ui.ledger_rc import Ui_Ledger
+from piggy_bank.ui.plots_lines_rc import Ui_PlotsLines
+from piggy_bank.ui.plots_stats_rc import Ui_PlotsStats
 
 
 def get_html_centered_message(msg: str) -> str:
@@ -86,3 +91,35 @@ class WebEnginePlotManager(QWidget):
 
         # Push to web engine
         self.web_view.setHtml(html)
+
+
+class NumericTableWidgetItem(QTableWidgetItem):
+    """Custom TableWidgetItem that sorts numerically instead of alphabetically."""
+    def __lt__(self, other):
+        try:
+            val1 = float(self.text().strip()) if self.text().strip() else 0.0
+            val2 = float(other.text().strip()) if other.text().strip() else 0.0
+            return val1 < val2
+        except ValueError:
+            return super().__lt__(other)
+
+
+class Ledger(QWidget, Ui_Ledger):
+    """Custom widget to handle the ledger table."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setupUi(self)
+
+
+class PlotsLines(QWidget, Ui_PlotsLines):
+    """Custom widget to handle the line plots."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setupUi(self)
+
+
+class PlotsStats(QWidget, Ui_PlotsStats):
+    """Custom widget to handle the statistical plots."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setupUi(self)
