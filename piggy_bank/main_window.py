@@ -1,52 +1,16 @@
 # noinspection unresolved-references
 import re
 import sys
-import logging
-import pandas as pd
-import plotly.graph_objects as go
-from PySide6.QtCore import Signal, Slot, QDate, QTimer, Qt
-from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QApplication, QMainWindow, QTableWidgetItem, QHeaderView, QWidget, QLabel, QVBoxLayout
 
-try:
-    # noinspection unused-imports
-    from PySide6.QtWebEngineWidgets import QWebEngineView
-    HAS_WEBENGINE = True
-except ImportError:
-    HAS_WEBENGINE = False
+from PySide6.QtCore import Slot, Qt
+from PySide6.QtWidgets import QApplication, QMainWindow, QTableWidgetItem, QHeaderView
 
 from piggy_bank.ui.main_window_rc import Ui_MainWindow
-from piggy_bank.ui.aggr_stats_rc import Ui_AggrStats
-from piggy_bank.ui.filter_tools_rc import Ui_FilterTools
+from piggy_bank.qw_webeng_plot_mngr import WebEnginePlotManager
+from piggy_bank.qw_aggr_stats import AggrStats
+from piggy_bank.qw_filter_tools import FilterTools
+
 from piggy_bank.etica import *
-
-
-def get_html_centered_message(msg: str) -> str:
-    return f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-            <style>
-              html, body {{
-                height: 100%;
-                width: 100%;
-                margin: 0;
-                padding: 0;
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                font-family: sans-serif;
-                background-color: #111111; /* Match dark theme */
-                color: #ffffff; /* Match dark theme text */
-                overflow: hidden;
-              }}
-            </style>
-            </head>
-            <body>
-              <h3>{msg}</h3>
-            </body>
-            </html>
-            """
 
 
 class NumericTableWidgetItem(QTableWidgetItem):
@@ -58,253 +22,6 @@ class NumericTableWidgetItem(QTableWidgetItem):
             return val1 < val2
         except ValueError:
             return super().__lt__(other)
-
-
-class FilterTools(QWidget, Ui_FilterTools):
-    """Custom widget to handle filter tools."""
-
-    # Custom signal emitted when filters are stable and ready to be applied
-    filters_updated = Signal()
-
-    def __init__(self, df: pd.DataFrame, parent=None):
-        super().__init__(parent)
-        self.setupUi(self)
-
-        # Store startup default states
-        self._default_start_date = QDate()
-        self._default_end_date = QDate()
-        self._default_out_range = (0, 1000)
-        self._default_in_range = (0, 1000)
-
-        # Setup Default Filter State for Radio Buttons
-        if not any([qrb.isChecked() for qrb in [self.qrb_all, self.qrb_bl_no, self.qrb_bl_only, self.qrb_inv_only, self.qrb_inv_no]]):
-            self.qrb_all.setChecked(True)
-
-        # --- Set up the debouncing timer ---
-        self.__timer = QTimer(self)
-        self.__timer.setSingleShot(True)  # Ensures it only fires once per timeout
-        self.__timer.setInterval(1000)
-        self.__timer.timeout.connect(self.filters_updated.emit)
-
-        # Set qde_start and qde_end to the min and max dates
-        if not df.empty:
-            dates = pd.to_datetime(df[COL_DATA], errors='coerce')
-            min_date, max_date = dates.min(), dates.max()
-
-            if not pd.isna(min_date):
-                self._default_start_date = QDate(min_date.year, min_date.month, min_date.day)
-                self.qde_start.setDate(self._default_start_date)
-            if not pd.isna(max_date):
-                self._default_end_date = QDate(max_date.year, max_date.month, max_date.day)
-                self.qde_end.setDate(self._default_end_date)
-
-        # Hook up internal signals to internal slots
-        self.qrs_out.valueChanged.connect(self._on_qrs_out_valueChanged)
-        self.qrs_in.valueChanged.connect(self._on_qrs_in_valueChanged)
-        self.qchk_out.toggled.connect(self._on_qchk_out_toggled)
-        self.qchk_in.toggled.connect(self._on_qchk_in_toggled)
-        self.qrb_all.toggled.connect(self._on_bg_filter_toggled)
-        self.qrb_bl_no.toggled.connect(self._on_bg_filter_toggled)
-        self.qrb_bl_only.toggled.connect(self._on_bg_filter_toggled)
-        self.qrb_inv_only.toggled.connect(self._on_bg_filter_toggled)
-        self.qrb_inv_no.toggled.connect(self._on_bg_filter_toggled)
-
-        self.qle_description.textChanged.connect(self._on_qle_description_textChanged)
-        self.qde_start.dateChanged.connect(self._on_qde_start_dateChanged)
-        self.qde_end.dateChanged.connect(self._on_qde_end_dateChanged)
-        self.qpb_reset.clicked.connect(self._on_qpb_reset_clicked)
-
-    def setup_sliders(self, df: pd.DataFrame):
-        """Calculates min/max from the dataframe and configures range sliders."""
-        ser_out = pd.to_numeric(df[COL_MINUS], errors='coerce').dropna()
-        ser_in = pd.to_numeric(df[COL_PLUS], errors='coerce').dropna()
-
-        incl = 0  # Inclusive max for slider
-        out_min = int(ser_out.min()) if not ser_out.empty else 0
-        out_max = int(ser_out.max()) + incl if not ser_out.empty else 1000
-
-        in_min = int(ser_in.min()) if not ser_in.empty else 0
-        in_max = int(ser_in.max()) + incl if not ser_in.empty else 1000
-
-        # Store startup defaults
-        self._default_out_range = (out_min, out_max)
-        self._default_in_range = (in_min, in_max)
-
-        # Block signals temporarily to prevent early filtering during setup
-        self.qrs_out.blockSignals(True)
-        self.qrs_out.setMinimum(out_min)
-        self.qrs_out.setMaximum(out_max)
-        self.qrs_out.setValue((out_min, out_max))
-        self.ql_out_min.setText(str(out_min))
-        self.ql_out_max.setText(str(out_max))
-        self.qrs_out.blockSignals(False)
-
-        self.qrs_in.blockSignals(True)
-        self.qrs_in.setMinimum(in_min)
-        self.qrs_in.setMaximum(in_max)
-        self.qrs_in.setValue((in_min, in_max))
-        self.ql_in_min.setText(str(in_min))
-        self.ql_in_max.setText(str(in_max))
-        self.qrs_in.blockSignals(False)
-
-    @Slot()
-    def _on_qpb_reset_clicked(self):
-        logging.info("Resetting UI filters to startup state...")
-
-        # Block signals temporarily to prevent massive UI cascading
-        controls = [self.qrb_all, self.qchk_in, self.qchk_out,
-                    self.qle_description, self.qde_start, self.qde_end, self.qrs_in, self.qrs_out]
-
-        for widget in controls:
-            widget.blockSignals(True)
-
-        # Restore states
-        self.qrb_all.setChecked(True)
-        self.qchk_in.setChecked(True)
-        self.qchk_out.setChecked(True)
-
-        self.qrs_out.setEnabled(True)
-        self.qrs_in.setEnabled(True)
-
-        self.qle_description.setText("")
-
-        if self._default_start_date.isValid():
-            self.qde_start.setDate(self._default_start_date)
-        if self._default_end_date.isValid():
-            self.qde_end.setDate(self._default_end_date)
-
-        # Restore sliders and internal text labels
-        self.qrs_out.setValue(self._default_out_range)
-        self.qrs_in.setValue(self._default_in_range)
-        self.ql_out_min.setText(str(self._default_out_range[0]))
-        self.ql_out_max.setText(str(self._default_out_range[1]))
-        self.ql_in_min.setText(str(self._default_in_range[0]))
-        self.ql_in_max.setText(str(self._default_in_range[1]))
-
-        # Resume signals
-        for widget in controls:
-            widget.blockSignals(False)
-
-        # Emit standard signals manually
-        self.filters_updated.emit()
-
-    @Slot(tuple)
-    def _on_qrs_out_valueChanged(self, value):
-        self.ql_out_min.setText(str(value[0]))
-        self.ql_out_max.setText(str(value[1]))
-        self.__timer.start()
-
-    @Slot(tuple)
-    def _on_qrs_in_valueChanged(self, value):
-        self.ql_in_min.setText(str(value[0]))
-        self.ql_in_max.setText(str(value[1]))
-        self.__timer.start()
-
-    @Slot(bool)
-    def _on_qchk_out_toggled(self, checked):
-        self.qrs_out.setEnabled(checked)
-        self.filters_updated.emit()
-
-    @Slot(bool)
-    def _on_qchk_in_toggled(self, checked):
-        self.qrs_in.setEnabled(checked)
-        self.filters_updated.emit()
-
-    @Slot(bool)
-    def _on_bg_filter_toggled(self, checked):
-        if checked:
-            self.__timer.start()
-
-    @Slot(str)
-    def _on_qle_description_textChanged(self, text):
-        self.__timer.start()
-
-    @Slot(QDate)
-    def _on_qde_start_dateChanged(self, date):
-        self.filters_updated.emit()
-
-    @Slot(QDate)
-    def _on_qde_end_dateChanged(self, date):
-        self.filters_updated.emit()
-
-
-class AggrStats(QWidget, Ui_AggrStats):
-    """Custom widget to handle aggregation statistics."""
-    def __init__(self, title: str, parent=None):
-        super().__init__(parent)
-        self.setupUi(self)
-        self.qgb.setTitle(title)
-
-    def update_stats(self, values: list, hide_if_empty: bool = False):
-        """Calculates statistics and updates labels. Hides widget if no values."""
-        if values:
-            self.setVisible(True)
-            self.setEnabled(True)
-        else:
-            if hide_if_empty:
-                self.setVisible(False)
-                return
-            else:
-                self.setEnabled(False)
-
-        s = pd.Series(values)
-
-        self.ql_entries.setText(f"{len(s): 6d}")
-        self.ql_min.setText(f"{s.min():.0f}")
-        self.ql_max.setText(f"{s.max():.0f}")
-        self.ql_sum.setText(f"{s.sum():.0f}")
-        self.ql_median.setText(f"{s.median():.0f}")
-        self.ql_avg.setText(f"{s.mean():.0f}")
-
-        std = s.std()
-        self.ql_std.setText(f"{std:.2f}" if pd.notna(std) else "0.00")
-
-
-class WebEnginePlotManager(QWidget):
-    """Encapsulates a single Plotly go.Figure into a QWebEngineView."""
-    def __init__(self, parent=None):
-        super().__init__(parent)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        if HAS_WEBENGINE:
-            self.web_view = QWebEngineView()
-            # Force background color instantly to prevent white flashing during load
-            self.web_view.page().setBackgroundColor(QColor('#111111'))
-            self.web_view.setHtml(get_html_centered_message("Loading data..."))
-            layout.addWidget(self.web_view)
-        else:
-            logging.error("PySide6.QtWebEngineWidgets not found. Plotting disabled.")
-            self.web_view = None
-            lbl = QLabel("Plotting requires PySide6-WebEngine module.")
-            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            layout.addWidget(lbl)
-
-    def render_figure(self, fig: go.Figure):
-        """Generates the HTML for the provided Plotly figure and sends it to the webview."""
-        if not HAS_WEBENGINE or self.web_view is None:
-            return
-
-        if fig is None:
-            self.web_view.setHtml(get_html_centered_message("No data to display"))
-            return
-
-        # We must set autosize=True for dynamic resizing
-        fig.update_layout(template='plotly_dark', margin=dict(l=20, r=20, t=40, b=20), autosize=True)
-
-        config = {'responsive': True}
-        raw_html = fig.to_html(include_plotlyjs='cdn', full_html=False, config=config)
-
-        # Use string replacement to inject styling directly into the <body> tag
-        # This removes the white border without breaking Plotly's responsiveness
-        html = raw_html.replace(
-            '<body>',
-            '<body style="margin: 0px; padding: 0px; background-color: #111111; overflow: hidden;">'
-        )
-
-        # Push to web engine
-        self.web_view.setHtml(html)
 
 
 # noinspection PyPep8Naming
@@ -335,6 +52,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         self.plot_hist_time = WebEnginePlotManager(self)
         self.qhl_plots_histograms_time.addWidget(self.plot_hist_time)
+
+        self.plot_box_out = WebEnginePlotManager(self)
+        self.qvl_plots_histograms_box_whiskers.addWidget(self.plot_box_out)
+
+        self.plot_box_in = WebEnginePlotManager(self)
+        self.qvl_plots_histograms_box_whiskers.addWidget(self.plot_box_in)
 
         self.plot_candles = WebEnginePlotManager(self)
         self.qhl_plots_candles_plot.addWidget(self.plot_candles)
@@ -537,7 +260,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             plot_data.append({
                 COL_DATA: date_val,
                 COL_IMP: imp_val,
-                COL_RUN_TOT: running_saldo
+                COL_RUN_TOT: running_saldo,
+                COL_MINUS: o_val,
+                COL_PLUS: i_val
             })
 
             # Accumulate values for statistical widgets
@@ -563,15 +288,18 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.df_plot = pd.DataFrame(plot_data)
         self._update_plot()
 
+    @Slot()
     def _update_plot(self):
         if self.df_plot.empty:
             self.plot_line.render_figure(None)
             self.plot_hist_import.render_figure(None)
             self.plot_hist_time.render_figure(None)
             self.plot_candles.render_figure(None)
+            self.plot_box_out.render_figure(None)
+            self.plot_box_in.render_figure(None)
             return
 
-        # 1. Main Line Plot + OLS + Importo Line
+        # 1. Main Line Plot + OLS + Importo Line (Now unconditionally rendered)
         fig_main = go.Figure()
         df_plot_ols, m, q = compute_ols(self.df_plot)
 
@@ -607,25 +335,57 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         fig_hist_import.update_layout(title=f'Importo Frequency (Bin = {import_bin_size})', xaxis_title='Importo', yaxis_title='Count', bargap=0.1)
         self.plot_hist_import.render_figure(fig_hist_import)
 
-        # 3. Time Histogram (Sum of Imports by Date Span)
+        # 3. Time Histogram (Periodic/Seasonal Binning)
         time_bin_str = self.qcb_plots_histograms_time.currentText()
-        if time_bin_str == "Weekly":
-            hist_xbins = dict(size=604800000)  # 1 week in ms
-        elif time_bin_str == "Monthly":
-            hist_xbins = dict(size='M1')       # 1 month
-        else:
-            hist_xbins = dict(size='M12')      # 1 year
-
+        dates_dt = pd.to_datetime(self.df_plot[COL_DATA])
         fig_hist_time = go.Figure()
-        fig_hist_time.add_trace(go.Histogram(
-            x=self.df_plot[COL_DATA],
-            y=self.df_plot[COL_IMP],
-            histfunc='sum',
-            name='Importo Sum',
-            xbins=hist_xbins,
-            marker_color='#2ca02c'
-        ))
-        fig_hist_time.update_layout(title=f'Importo Sum over Time (Binned {time_bin_str})', xaxis_title='Date', yaxis_title='Sum of Importo', bargap=0.1)
+
+        if time_bin_str == "Weekly":
+            # Group every transaction by 7 days: Mon - Sun
+            x_data = dates_dt.dt.day_name()
+            category_array = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+            fig_hist_time.add_trace(go.Histogram(
+                x=x_data,
+                y=self.df_plot[COL_IMP],
+                histfunc='sum',
+                name='Importo Sum',
+                marker_color='#2ca02c'
+            ))
+            fig_hist_time.update_xaxes(categoryorder='array', categoryarray=category_array)
+            title_text = 'Importo Sum by Day of Week (Mon-Sun)'
+            xaxis_title = 'Day of Week'
+
+        elif time_bin_str == "Monthly":
+            # Group every transaction by 31 days: 1 - 31
+            x_data = dates_dt.dt.day
+            fig_hist_time.add_trace(go.Histogram(
+                x=x_data,
+                y=self.df_plot[COL_IMP],
+                histfunc='sum',
+                name='Importo Sum',
+                xbins=dict(start=0.5, end=31.5, size=1),
+                marker_color='#2ca02c'
+            ))
+            fig_hist_time.update_xaxes(tickmode='linear', dtick=1)
+            title_text = 'Importo Sum by Day of Month (1-31)'
+            xaxis_title = 'Day of Month'
+
+        else: # Yearly
+            # Group every transaction by 12 months: 1 - 12
+            x_data = dates_dt.dt.month
+            fig_hist_time.add_trace(go.Histogram(
+                x=x_data,
+                y=self.df_plot[COL_IMP],
+                histfunc='sum',
+                name='Importo Sum',
+                xbins=dict(start=0.5, end=12.5, size=1),
+                marker_color='#2ca02c'
+            ))
+            fig_hist_time.update_xaxes(tickmode='linear', dtick=1)
+            title_text = 'Importo Sum by Month of Year (1-12)'
+            xaxis_title = 'Month'
+
+        fig_hist_time.update_layout(title=title_text, xaxis_title=xaxis_title, yaxis_title='Sum of Importo', bargap=0.1)
         self.plot_hist_time.render_figure(fig_hist_time)
 
         # 4. Candlesticks
@@ -648,6 +408,37 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         fig_candle.update_layout(title=f'Balance Candlestick Chart ({candle_time_str})', xaxis_title='Date', yaxis_title=COL_RUN_TOT, xaxis_rangeslider_visible=False, hovermode='x unified')
         fig_candle.update_yaxes(minor=dict(dtick=500, showgrid=True))
         self.plot_candles.render_figure(fig_candle)
+
+        # 5. Box and Whiskers (Dare & Avere)
+        # Plot Expenses (Dare / Out)
+        fig_box_out = go.Figure()
+        expenses_series = self.df_plot[self.df_plot[COL_MINUS] != 0][COL_MINUS]
+        fig_box_out.add_trace(go.Box(
+            y=expenses_series,
+            name='Expenses (Dare)',
+            marker_color='#d62728'  # Red for expenses
+        ))
+        fig_box_out.update_layout(
+            title='Expenses Distribution',
+            yaxis_title='Amount',
+            margin=dict(l=20, r=20, t=40, b=20)
+        )
+        self.plot_box_out.render_figure(fig_box_out)
+
+        # Plot Incomes (Avere / In)
+        fig_box_in = go.Figure()
+        incomes_series = self.df_plot[self.df_plot[COL_PLUS] != 0][COL_PLUS]
+        fig_box_in.add_trace(go.Box(
+            y=incomes_series,
+            name='Incomes (Avere)',
+            marker_color='#2ca02c'  # Green for incomes
+        ))
+        fig_box_in.update_layout(
+            title='Incomes Distribution',
+            yaxis_title='Amount',
+            margin=dict(l=20, r=20, t=40, b=20)
+        )
+        self.plot_box_in.render_figure(fig_box_in)
 
     @staticmethod
     def get_data_source() -> pd.DataFrame:

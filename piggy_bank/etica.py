@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 from colorama import Fore
-from typing import  Tuple
+from typing import Tuple
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import plotly.graph_objects as go
