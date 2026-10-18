@@ -6,6 +6,7 @@ import logging
 import plotly.graph_objects as go
 
 from PySide6.QtCore import Slot, Qt
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMainWindow, QTableWidgetItem, QHeaderView
 from piggy_bank.qw_misc import *
 from piggy_bank.ui.main_window_rc import Ui_MainWindow
@@ -476,6 +477,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 def main():
     init_logging(True)
     app = QApplication(sys.argv)
+
+    # 1. Set the global application icon
+    icon = str((Path(__file__).parent / "ui" / "icon.png"))
+    logging.debug(f"Setting application icon from: {icon}")
+    app.setWindowIcon(QIcon(icon))
+
     window = MainWindow()
     logging.debug("Starting Piggy Bank application")
     window.showMaximized()

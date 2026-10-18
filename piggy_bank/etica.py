@@ -111,35 +111,53 @@ def load_data() -> pd.DataFrame:
         _lg.debug(f"Loaded blacklist.csv with {len(df_blacklist)} rows")
         df_blacklist[COL_DATA] = pd.to_datetime(df_blacklist[COL_DATA], errors='coerce')
 
-        # If a row has both Dare and Avere as NaN, log a warning and remove it
-        nan_mask = df_blacklist[COL_MINUS].isna() & df_blacklist[COL_PLUS].isna()
-        if nan_mask.any():
-            _lg.error(f"Found {nan_mask.sum()} rows in blacklist.csv with both {COL_MINUS} and {COL_PLUS} as NaN. Removing them")
-            df_blacklist = df_blacklist[~nan_mask]
+        # Remove rows that provide neither amounts nor a description wildcard
+        empty_mask = df_blacklist[COL_MINUS].isna() & df_blacklist[COL_PLUS].isna() & df_blacklist[COL_DESCR].isna()
+        if empty_mask.any():
+            _lg.error(f"Found {empty_mask.sum()} completely empty rows in blacklist.csv. Removing them")
+            df_blacklist = df_blacklist[~empty_mask]
 
         # Add blacklist column to df_merged (default 0) and flag matches
         df_merged[COL_INV] = 0
 
         for _, bl_row in df_blacklist.iterrows():
-            # Build matching condition for df_merged based on available non-NaN values
-            cond = (df_merged[COL_DATA] == bl_row[COL_DATA])
-            if pd.notna(bl_row[COL_MINUS]):
-                cond &= (df_merged[COL_MINUS] == bl_row[COL_MINUS])
-            if pd.notna(bl_row[COL_PLUS]):
-                cond &= (df_merged[COL_PLUS] == bl_row[COL_PLUS])
+            # Check if this is a wildcard description match (Amounts are NaN, but Description exists)
+            is_wildcard = pd.isna(bl_row[COL_MINUS]) and pd.isna(bl_row[COL_PLUS]) and pd.notna(bl_row[COL_DESCR])
 
-            matches = df_merged[cond]
-            n_matches = len(matches)
+            if is_wildcard:
+                wildcard_str = str(bl_row[COL_DESCR]).strip()
+                # Strictly contains wildcard logic
+                cond = df_merged[COL_DESCR].str.contains(wildcard_str, case=True, regex=False, na=False)
 
-            if n_matches == 1:
-                df_merged.loc[cond, COL_INV] = 1
-                descr, plus, minus = bl_row[COL_DESCR], bl_row[COL_PLUS], bl_row[COL_MINUS]
-                imp = f"{(plus if pd.notna(plus) else minus)} EUR"
-                _lg.info(f"Blacklisted entry matched: {bl_row[COL_DATA].date()}, {imp}, {descr}")
-            elif n_matches > 1:
-                raise ValueError(f"Found {n_matches} matches in data for blacklist entry: {bl_row.to_dict()}")
+                matches = df_merged[cond]
+                n_matches = len(matches)
+
+                if n_matches > 0:
+                    df_merged.loc[cond, COL_INV] = 1
+                    _lg.info(f"Blacklisted {n_matches} entries matching wildcard: '{wildcard_str}'")
+                else:
+                    _lg.error(f"No match found in data for wildcard blacklist entry: '{wildcard_str}'")
+
             else:
-                _lg.error(f"No match found in data for blacklist entry: {bl_row.to_dict()}")
+                # Build exact matching condition for df_merged based on available non-NaN values
+                cond = (df_merged[COL_DATA] == bl_row[COL_DATA])
+                if pd.notna(bl_row[COL_MINUS]):
+                    cond &= (df_merged[COL_MINUS] == bl_row[COL_MINUS])
+                if pd.notna(bl_row[COL_PLUS]):
+                    cond &= (df_merged[COL_PLUS] == bl_row[COL_PLUS])
+
+                matches = df_merged[cond]
+                n_matches = len(matches)
+
+                if n_matches == 1:
+                    df_merged.loc[cond, COL_INV] = 1
+                    descr, plus, minus = bl_row[COL_DESCR], bl_row[COL_PLUS], bl_row[COL_MINUS]
+                    imp = f"{(plus if pd.notna(plus) else minus)} EUR"
+                    _lg.info(f"Blacklisted entry matched: {bl_row[COL_DATA].date()}, {imp}, {descr}")
+                elif n_matches > 1:
+                    raise ValueError(f"Found {n_matches} matches in data for blacklist entry: {bl_row.to_dict()}")
+                else:
+                    _lg.error(f"No match found in data for blacklist entry: {bl_row.to_dict()}")
     else:
         # If no blacklist exists, ensure uniform structure
         if COL_DESCR in df_merged.columns:
