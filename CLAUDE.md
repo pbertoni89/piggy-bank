@@ -20,7 +20,9 @@ Everything runs through `driver.sh`, which activates `.venv/` first:
 - Tests: `./driver.sh -t` or `.venv/bin/python -m pytest` (configured in `pyproject.toml`, `pythonpath = ["."]`).
   - `tests/test_load_data.py` covers the ingestion pipeline. Its `data_dir` fixture monkeypatches `etica.DATA_DIR` to a tmp dir, and `write_csv` writes statement/blacklist CSVs. Never point tests at the real `data/`.
   - `tests/test_compute.py` covers the pure computations.
-  - `tests/test_widgets.py` uses pytest-qt, runs offscreen, and is skipped if `*_rc.py` haven't been built. `MainWindow` isn't tested (QtWebEngine).
+  - `tests/test_widgets.py` uses pytest-qt, runs offscreen, and is skipped if `*_rc.py` haven't been built.
+  - `tests/test_sigint.py` runs Qt in a subprocess, because `app.exit()` ends every event loop and would break pytest-qt's shared `QApplication`. Never call `qapp.exec()`/`exit()` in-process in tests.
+  - `tests/test_main_window.py` builds the real `MainWindow` offscreen (QtWebEngine works headless, about 2 s per window). It drives the File menu actions with `FakeDialogs`, which replaces `main_window.QFileDialog`/`QMessageBox`. `.xls` reading is faked by monkeypatching `etica.pd.read_excel`, since there's no xls writer installed.
 - Install: `pip install -e '.[dev]'`. It must be editable, because `DATA_DIR` is resolved relative to the source tree.
 
 ## Dependencies gotchas
@@ -32,6 +34,8 @@ Everything runs through `driver.sh`, which activates `.venv/` first:
 ## Generated files: never edit `*_rc.py`
 
 `piggy_bank/ui/*_rc.py` are pyside6-uic output (gitignored). To change a layout, edit the `.ui` file in Designer (or the XML), then run `./driver.sh -b`. Each `X.ui` produces `X_rc.py` with class `Ui_<RootWidgetName>`. Python widgets use multiple inheritance (`class Foo(QWidget, Ui_Foo)` + `self.setupUi(self)`).
+
+The user often has the `.ui` files open in Designer (`./driver.sh -d` opens all of them). Saving from Designer overwrites any edit made on disk in the meantime: the `calendarPopup` on `qde_start`/`qde_end` was lost this way once. Before editing a `.ui` file, ask the user to close it in Designer, or tell them to reopen it afterwards. Prefer settings that tests check (e.g. `test_filter_tools_dates_have_calendar_popup`), so a stale save is caught by `./driver.sh -t`.
 
 ## Data (sensitive, gitignored)
 
@@ -47,22 +51,26 @@ The data lives in `data/etica/` (`DATA_DIR` in `etica.py`). It is real personal 
    - **Wildcard row**: `Dare` and `Avere` empty, `Descrizione` set. Case-sensitive substring match on description.
    - A row with no `Dare`, `Avere` or `Descrizione` (even if it has a date) counts as empty and is dropped.
 6. Rewrites noisy `Descrizione` fragments (the hardcoded `stripped_parts` list, e.g. → `<BONIF>`).
+7. Sets `Investment` = 0/1 from `INV_REGEX` on the *cleaned* description. Like `Blacklisted`, it is computed on every load and isn't in `merged.csv` (which is written at step 4).
 
-Column constants (use these, not string literals): `COL_DATA`='Data contabile', `COL_MINUS`='Dare' (outflows, negative), `COL_PLUS`='Avere' (inflows), `COL_DESCR`='Descrizione', `COL_INV`='Blacklisted', `COL_RUN_TOT`='Running Total', `COL_IMP`='Importo', `COL_OLS`='OLS'. Amount = `Avere.fillna(0) + Dare.fillna(0)`.
+Column constants (use these, not string literals): `COL_DATA`='Data contabile', `COL_MINUS`='Dare' (outflows, negative), `COL_PLUS`='Avere' (inflows), `COL_DESCR`='Descrizione', `COL_BL`='Blacklisted', `COL_INV`='Investment', `COL_RUN_TOT`='Running Total', `COL_IMP`='Importo', `COL_OLS`='OLS'. Amount = `Avere.fillna(0) + Dare.fillna(0)`.
 
-"Blacklisted" means excluded from the "net" view, e.g. transfers in and out of investments. Investments are detected by `etica.INV_REGEX` (case-sensitive) on the description. Both `filter_investments` and `MainWindow` use it, so don't hardcode the pattern anywhere else.
+"Blacklisted" means excluded from the "net" view, e.g. transfers in and out of investments. Investments are detected by `etica.INV_REGEX` (case-sensitive substring) only inside `load_data()`. Everything else (`filter_investments`, the ledger table, the INV radios) reads the `Investment` column, so don't match the pattern anywhere else. "bl"/"inv" naming is consistent throughout: `COL_BL`/`COL_INV`, `__idx_bl`/`__idx_inv`, `brg_bl`/`brg_inv`.
 
 ## Architecture
 
 - `etica.py`: pure pandas/numpy logic (loading, `compute_importo`, `compute_ols` linear fit of the running total vs date ordinal, `compute_candlesticks` OHLC resample) plus matplotlib/plotly helpers for the notebook. It has no Qt imports, so keep it that way.
 - `main_window.py`: `MainWindow` and `main()`. `get_data_source()` calls `load_data()`, adds the running total, checks the required columns, and formats dates as `YYYY-MM-DD` strings.
+  - `_show_data(df)` holds everything that depends on the data (column indices, table, header, date and amount ranges, sort, `_apply_filters`). It runs at startup and again on every reload (`_reload_data()`). The other filters (text, direction, radios) are kept across reloads.
+  - File menu: `qa_import_data` copies a chosen `.xls` into `DATA_DIR` (confirming first if that statement's `.csv` already exists). `qa_import_blacklist` overwrites `DATA_DIR/blacklist.csv`. Both go through `_import_and_reload()`, which reloads and, on any failure (including an xls that `load_data()` couldn't convert), restores the touched files and reloads the previous state. `qa_export_data` copies `merged.csv` wherever the user picks.
+  - `main_window` reads `etica.DATA_DIR` through the module, not the star import, so tests can redirect it.
   - The ledger `QTableWidget` is the source of truth for filtering. `_apply_filters()` walks the table rows, hides the rows that fail the filters, and recomputes the `Running Total` cells chronologically over the *visible* rows only. It builds `self.df_plot` and calls `_update_plot()`, which redraws every Plotly figure (line+OLS, amount histogram, weekday/day-of-month/month histogram, candlesticks, box plots).
   - The weekday histogram deliberately raises if any transaction falls on a Saturday (a sanity check).
 - `filter_tools.py`: `FilterTools` widget (direction checkboxes, `QRangeSlider` amount ranges, description text, date range, two independent radio groups, reset).
-  - `brg_bl` (`qrb_bl_all/force/veto`) and `brg_inv` (`qrb_inv_all/force/veto`): **All** = no constraint, **Force** = keep only matching rows, **Veto** = drop matching rows. "Matching" means `Blacklisted == 1` for BL and an `INV_REGEX` hit for INV. Both groups apply together (AND).
+  - `brg_bl` (`qrb_bl_all/force/veto`) and `brg_inv` (`qrb_inv_all/force/veto`): **All** = no constraint, **Force** = keep only matching rows, **Veto** = drop matching rows. "Matching" means `Blacklisted == 1` for BL and `Investment == 1` for INV. Both groups apply together (AND).
   - The groups are wired through the `QButtonGroup`s that uic generates (`brg.buttonToggled` → `_on_brg_buttonToggled`, `checkedButton()` for defaults). Group membership lives only in the `.ui`, so don't keep Python lists of radios. Each group's default is whichever radio has `checked=true` in the `.ui` (the **All** ones). It's captured at init in `__brg_defaults` and restored by reset. A group with no checked radio raises at startup. It emits `filters_updated`, debounced with a 1 s single-shot `QTimer` for sliders and text.
-- `aggr_stats.py`: `AggrStats` box (All/Out/In summary stats over the visible values).
-- `qw_misc.py`: `WebEnginePlotManager` (renders a `go.Figure` to HTML in a `QWebEngineView`, dark theme `#111111`), `NumericTableWidgetItem` (numeric sort), and thin wrappers `Ledger`, `PlotsLines`, `PlotsStats` that load their `.ui` files.
+- `aggr_stats.py`: `AggrStats` box (All/Out/In summary stats over the visible values). With `coloured=True` (only `stats_all`), sum, median and average are green when >= 0 and red when negative, using the plots' `#2ca02c`/`#d62728`.
+- `qw_misc.py`: `install_sigint_handler(app)` (Ctrl+C → `app.exit(130)`; a 200 ms no-op `QTimer` lets Python run signal handlers while Qt idles; `main()` installs it right before `app.exec()` and catches `KeyboardInterrupt` during startup). `WebEnginePlotManager` (renders a `go.Figure` to HTML in a `QWebEngineView`, dark theme `#111111`), `NumericTableWidgetItem` (numeric sort), and thin wrappers `Ledger`, `PlotsLines`, `PlotsStats` that load their `.ui` files.
 - The main window has tabs whose layouts (`ql_ledger`, `ql_plots_lines`, `ql_plots_stats`, `qvl_aggr_stats`) get the sub-widgets inserted at runtime.
 
 ## Conventions

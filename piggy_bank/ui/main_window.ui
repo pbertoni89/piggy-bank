@@ -88,6 +88,8 @@
      <string>File</string>
     </property>
     <addaction name="qa_import_data"/>
+    <addaction name="qa_import_blacklist"/>
+    <addaction name="separator"/>
     <addaction name="qa_export_data"/>
    </widget>
    <widget class="QMenu" name="menuIpsum">
@@ -107,6 +109,11 @@
   <action name="qa_export_data">
    <property name="text">
     <string>Export data</string>
+   </property>
+  </action>
+  <action name="qa_import_blacklist">
+   <property name="text">
+    <string>Import blacklist</string>
    </property>
   </action>
  </widget>

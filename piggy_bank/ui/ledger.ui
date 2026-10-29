@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>554</width>
-    <height>413</height>
+    <width>658</width>
+    <height>399</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -42,6 +42,16 @@
      <column>
       <property name="text">
        <string>Blacklisted</string>
+      </property>
+     </column>
+     <column>
+      <property name="text">
+       <string>Investment</string>
+      </property>
+     </column>
+     <column>
+      <property name="text">
+       <string>Running Total</string>
       </property>
      </column>
     </widget>

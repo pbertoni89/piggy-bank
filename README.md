@@ -69,6 +69,14 @@ Exports can overlap (e.g. a full-year file and a partial "bis" file), so exact d
 
 Or launch the GUI through the installed entry point: `piggy-bank`.
 
+In the GUI, the **File** menu manages the data folder for you:
+
+- **Import data**: pick a `.xls` export. It is copied into `data/etica/`, converted, and everything is refreshed. If a statement with the same name already exists, you're asked before it gets replaced.
+- **Import blacklist**: pick a `.csv`. It replaces `data/etica/blacklist.csv` and everything is refreshed.
+- **Export data**: save a copy of `merged.csv` wherever you like.
+
+If an import breaks loading (e.g. an unreadable file, or a blacklist entry matching more than one movement), it is rolled back and the previous data stays as it was.
+
 For the notebook, open `piggy_bank/etica.ipynb` in JupyterLab.
 
 ## Tests

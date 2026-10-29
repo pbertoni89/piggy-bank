@@ -1,3 +1,5 @@
+from typing import Optional
+
 from PySide6.QtCore import Signal, QDate, QTimer, Slot
 from PySide6.QtWidgets import QWidget, QAbstractButton
 
@@ -11,7 +13,7 @@ class FilterTools(QWidget, Ui_FilterTools):
     # Custom signal emitted when filters are stable and ready to be applied
     filters_updated = Signal()
 
-    def __init__(self, df: pd.DataFrame, parent=None):
+    def __init__(self, df: pd.DataFrame, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setupUi(self)
 
@@ -33,17 +35,7 @@ class FilterTools(QWidget, Ui_FilterTools):
         self.__timer.setInterval(1000)
         self.__timer.timeout.connect(self.filters_updated.emit)
 
-        # Set qde_start and qde_end to the min and max dates
-        if not df.empty:
-            dates = pd.to_datetime(df[COL_DATA], errors='coerce')
-            min_date, max_date = dates.min(), dates.max()
-
-            if not pd.isna(min_date):
-                self._default_start_date = QDate(min_date.year, min_date.month, min_date.day)
-                self.qde_start.setDate(self._default_start_date)
-            if not pd.isna(max_date):
-                self._default_end_date = QDate(max_date.year, max_date.month, max_date.day)
-                self.qde_end.setDate(self._default_end_date)
+        self.setup_dates(df)
 
         # Hook up internal signals to internal slots
         self.qrs_out.valueChanged.connect(self._on_qrs_out_valueChanged)
@@ -57,6 +49,25 @@ class FilterTools(QWidget, Ui_FilterTools):
         self.qde_start.dateChanged.connect(self._on_qde_start_dateChanged)
         self.qde_end.dateChanged.connect(self._on_qde_end_dateChanged)
         self.qpb_reset.clicked.connect(self._on_qpb_reset_clicked)
+
+    def setup_dates(self, df: pd.DataFrame):
+        """Sets qde_start and qde_end (and their reset defaults) to the min and max dates of the dataframe."""
+        if df.empty:
+            return
+        dates = pd.to_datetime(df[COL_DATA], errors='coerce')
+        min_date, max_date = dates.min(), dates.max()
+
+        # Block signals so that reloading data doesn't trigger early filtering
+        for qde in (self.qde_start, self.qde_end):
+            qde.blockSignals(True)
+        if not pd.isna(min_date):
+            self._default_start_date = QDate(min_date.year, min_date.month, min_date.day)
+            self.qde_start.setDate(self._default_start_date)
+        if not pd.isna(max_date):
+            self._default_end_date = QDate(max_date.year, max_date.month, max_date.day)
+            self.qde_end.setDate(self._default_end_date)
+        for qde in (self.qde_start, self.qde_end):
+            qde.blockSignals(False)
 
     def setup_sliders(self, df: pd.DataFrame):
         """Calculates min/max from the dataframe and configures range sliders."""

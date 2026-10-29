@@ -3,12 +3,12 @@ dirRoot="$(dirname "${BASH_SOURCE[0]}")"
 source "${dirRoot}/.venv/bin/activate"
 
 
-function run_designer() {
-  nohup pyside6-designer "${dirRoot}/piggy_bank/ui/"*.ui &
+function piggybank_run_designer() {
+  nohup pyside6-designer "${dirRoot}"/piggy_bank/ui/*.ui &
 }
 
 
-function build_ui() {
+function piggybank_build_ui() {
   pushd "${dirRoot}"/piggy_bank/ui > /dev/null || return 1
   local ui_file
   local rc_file
@@ -28,8 +28,8 @@ function build_ui() {
 }
 
 
-function build_run_ui() {
-  build_ui
+function piggybank_build_run_ui() {
+  piggybank_build_ui
   pushd "${dirRoot}" > /dev/null || return 1
 
   python -c "import superqt; print(f'superqt version {superqt.__version__} is installed')" || {
@@ -40,24 +40,25 @@ function build_run_ui() {
 
   set -x
   PYTHONPATH=. python piggy_bank/main_window.py
+  local rc=${?}
   { set +x; } 2>/dev/null
-  echo "UI exited with code ${?}."
+  echo "UI exited with code ${rc}."
   popd > /dev/null || return 1
 }
 
 
-function run_tests() {
+function piggybank_run_tests() {
   # Build first, otherwise the widget tests are skipped
-  build_ui || return $?
+  piggybank_build_ui || return ${?}
   pushd "${dirRoot}" > /dev/null || return 1
-  python -m pytest "$@"
+  python -m pytest "${@}"
   local rc=${?}
   popd > /dev/null || return 1
   return ${rc}
 }
 
 
-function usage() {
+function piggybank_usage() {
   echo "Usage: $0 [-d] [-r] [-b] [-h] [-i] [-t [pytest args...]]"
   echo "  -d: Run Qt Designer"
   echo "  -r: Build and run the UI"
@@ -73,10 +74,10 @@ getopts "drbhit" opt
 shift $((OPTIND - 1))
 case ${opt} in
   d)
-    run_designer
+    piggybank_run_designer
     ;;
   r)
-    build_run_ui
+    piggybank_build_run_ui
     ;;
   i)
     pushd "${dirRoot}" > /dev/null || return 1
@@ -85,16 +86,16 @@ case ${opt} in
     popd > /dev/null || return 1
     ;;
   b)
-    build_ui
+    piggybank_build_ui
     ;;
   t)
-    run_tests "$@"
+    piggybank_run_tests "${@}"
     exit ${?}
     ;;
   h)
-    usage 0
+    piggybank_usage 0
     ;;
   *)
-    usage 3
+    piggybank_usage 3
     ;;
 esac

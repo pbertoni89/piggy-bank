@@ -38,6 +38,41 @@ def test_aggr_stats(qtbot):
     assert w.isEnabled()
 
 
+@pytest.mark.parametrize('values, colour', [([-10.0, 5.0, -1.0], '#d62728'), ([10.0, -5.0, 1.0], '#2ca02c'),
+                                             ([0.0], '#2ca02c')])
+def test_aggr_stats_coloured(qtbot, values, colour):
+    w = AggrStats('All', coloured=True)
+    qtbot.addWidget(w)
+
+    w.update_stats(values)
+
+    for label in (w.ql_sum, w.ql_median, w.ql_avg):
+        assert colour in label.styleSheet()
+    for label in (w.ql_entries, w.ql_min, w.ql_max, w.ql_std):
+        assert label.styleSheet() == ''
+
+
+def test_aggr_stats_coloured_mixed_signs(qtbot):
+    w = AggrStats('All', coloured=True)
+    qtbot.addWidget(w)
+
+    # sum 30 >= 0, median -1 < 0, mean 7.5 >= 0
+    w.update_stats([-2.0, -1.0, -1.0, 34.0])
+
+    assert '#2ca02c' in w.ql_sum.styleSheet()
+    assert '#d62728' in w.ql_median.styleSheet()
+    assert '#2ca02c' in w.ql_avg.styleSheet()
+
+
+def test_aggr_stats_not_coloured_by_default(qtbot):
+    w = AggrStats('Out')
+    qtbot.addWidget(w)
+
+    w.update_stats([-10.0])
+
+    assert all(label.styleSheet() == '' for label in (w.ql_sum, w.ql_median, w.ql_avg))
+
+
 def test_aggr_stats_empty(qtbot):
     w = AggrStats('Out')
     qtbot.addWidget(w)
@@ -107,6 +142,13 @@ def test_filter_tools_groups_are_independent(qtbot, df):
     ft.qrb_inv_veto.click()
 
     assert ft.qrb_bl_force.isChecked() and ft.qrb_inv_veto.isChecked()
+
+
+def test_filter_tools_dates_have_calendar_popup(qtbot, df):
+    ft = FilterTools(df)
+    qtbot.addWidget(ft)
+
+    assert ft.qde_start.calendarPopup() and ft.qde_end.calendarPopup()
 
 
 def test_filter_tools_reset_restores_defaults_and_emits(qtbot, df):

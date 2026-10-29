@@ -1,18 +1,22 @@
 # noinspection unresolved-references
-import re
+import shutil
+import signal
 import sys
+from datetime import datetime
 import pandas as pd
 import logging
 import plotly.graph_objects as go
 
 from PySide6.QtCore import Slot, Qt
 from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QApplication, QMainWindow, QTableWidgetItem, QHeaderView
+from PySide6.QtWidgets import QApplication, QMainWindow, QTableWidgetItem, QHeaderView, QFileDialog, QMessageBox
 from piggy_bank.qw_misc import *
 from piggy_bank.ui.main_window_rc import Ui_MainWindow
 from piggy_bank.aggr_stats import AggrStats
 from piggy_bank.filter_tools import FilterTools
 from piggy_bank.etica import *
+# DATA_DIR is read through the module at call time, so it can be redirected (e.g. by tests)
+from piggy_bank import etica
 
 
 # noinspection PyPep8Naming
@@ -34,7 +38,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         df = self.get_data_source()
 
         # Initialise dynamic widgets
-        self.stats_all = AggrStats("All")
+        self.stats_all = AggrStats("All", coloured=True)
         self.stats_out = AggrStats("Out")
         self.stats_in = AggrStats("In")
         self.ft = FilterTools(df)
@@ -66,40 +70,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.plot_candles = WebEnginePlotManager(self)
         self.ui_plots_lines.ql_candle.addWidget(self.plot_candles)
 
-        # Compile the investment regex pattern
-        self.__inv_pattern = re.compile(INV_REGEX)
-
-        # Cache column indices dynamically to avoid hardcoding
-        self.__idx_data = df.columns.get_loc(COL_DATA)
-        self.__idx_out = df.columns.get_loc(COL_MINUS)
-        self.__idx_in = df.columns.get_loc(COL_PLUS)
-        self.__idx_desc = df.columns.get_loc(COL_DESCR)
-        self.__idx_inv = df.columns.get_loc(COL_INV)
-        self.__idx_saldo = df.columns.get_loc(COL_RUN_TOT)
-
-        self._populate_table(df)
-
-        # Configure Header layout
-        header = self.ui_ledger.qtw_ledger.horizontalHeader()
-        header.setSectionResizeMode(self.__idx_data, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(self.__idx_out, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(self.__idx_in, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(self.__idx_desc, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(self.__idx_inv, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(self.__idx_saldo, QHeaderView.ResizeMode.Fixed)
-
-        self.ui_ledger.qtw_ledger.setColumnWidth(self.__idx_out, 100)
-        self.ui_ledger.qtw_ledger.setColumnWidth(self.__idx_in, 100)
-        self.ui_ledger.qtw_ledger.setColumnWidth(self.__idx_saldo, 100)
-
-        # Setup range sliders internally in FilterTools
-        self.ft.setup_sliders(df)
-
-        # Enable sorting after population
-        self.ui_ledger.qtw_ledger.setSortingEnabled(True)
-        # Force initial sorting by 'Data contabile' descending
-        self.ui_ledger.qtw_ledger.sortItems(self.__idx_data, Qt.SortOrder.DescendingOrder)
-
         # Connect signals
         self.ft.filters_updated.connect(self._apply_filters)
 
@@ -111,9 +81,125 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # DataFrame to store dynamically filtered rows for plotting
         self.df_plot = pd.DataFrame()
 
+        # Menu actions
+        self.qa_import_data.triggered.connect(self._on_qa_import_data_triggered)
+        self.qa_import_blacklist.triggered.connect(self._on_qa_import_blacklist_triggered)
+        self.qa_export_data.triggered.connect(self._on_qa_export_data_triggered)
+
         # Initial render
-        logging.debug("Applying initial filters to qtw_ledger...")
+        self._show_data(df)
+
+    def _show_data(self, df: pd.DataFrame):
+        """(Re)fills the ledger with df and re-applies the current filters. Used at startup and after every import."""
+        # Cache column indices dynamically to avoid hardcoding
+        self.__idx_data = df.columns.get_loc(COL_DATA)
+        self.__idx_out = df.columns.get_loc(COL_MINUS)
+        self.__idx_in = df.columns.get_loc(COL_PLUS)
+        self.__idx_desc = df.columns.get_loc(COL_DESCR)
+        self.__idx_bl = df.columns.get_loc(COL_BL)
+        self.__idx_inv = df.columns.get_loc(COL_INV)
+        self.__idx_saldo = df.columns.get_loc(COL_RUN_TOT)
+
+        self._populate_table(df)
+
+        # Configure Header layout
+        header = self.ui_ledger.qtw_ledger.horizontalHeader()
+        header.setSectionResizeMode(self.__idx_data, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(self.__idx_out, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(self.__idx_in, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(self.__idx_desc, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(self.__idx_bl, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(self.__idx_inv, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(self.__idx_saldo, QHeaderView.ResizeMode.Fixed)
+
+        self.ui_ledger.qtw_ledger.setColumnWidth(self.__idx_out, 100)
+        self.ui_ledger.qtw_ledger.setColumnWidth(self.__idx_in, 100)
+        self.ui_ledger.qtw_ledger.setColumnWidth(self.__idx_saldo, 100)
+
+        # Date and amount ranges follow the (possibly new) data
+        self.ft.setup_dates(df)
+        self.ft.setup_sliders(df)
+
+        # Enable sorting after population
+        self.ui_ledger.qtw_ledger.setSortingEnabled(True)
+        # Force initial sorting by 'Data contabile' descending
+        self.ui_ledger.qtw_ledger.sortItems(self.__idx_data, Qt.SortOrder.DescendingOrder)
+
+        logging.debug("Applying filters to qtw_ledger...")
         self._apply_filters()
+
+    def _reload_data(self):
+        """Runs the whole load_data() pipeline again and refreshes every widget."""
+        self._show_data(self.get_data_source())
+
+    def _import_and_reload(self, src: Path, dst: Path, touched: list) -> bool:
+        """Copies src to dst, then reloads everything. If anything fails, the touched files
+        (dst included) are put back as they were and the previous data is reloaded."""
+        backups = {p: (p.read_bytes() if p.exists() else None) for p in touched}
+        try:
+            if src.resolve() != dst.resolve():
+                shutil.copyfile(src, dst)
+            self._reload_data()
+            # load_data() only logs a failed xls -> csv conversion and leaves the xls in place
+            if dst.suffix == '.xls' and dst.exists():
+                raise RuntimeError(f'Could not convert {dst.name} to CSV, see the log for details')
+        except Exception as e:
+            logging.error(f'Import of {src} failed, rolling back: {e}')
+            for path, content in backups.items():
+                if content is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    path.write_bytes(content)
+            self._reload_data()
+            QMessageBox.critical(self, 'Import failed', f'Could not import {src.name}:\n\n{e}\n\nNothing was changed.')
+            return False
+
+        logging.info(f'Imported {src} as {dst}')
+        self.statusbar.showMessage(f'Imported {src.name}', 5000)
+        return True
+
+    @Slot()
+    def _on_qa_import_data_triggered(self):
+        path, _ = QFileDialog.getOpenFileName(self, 'Import bank statement', str(Path.home()), 'Excel exports (*.xls)')
+        if not path:
+            return
+        src = Path(path)
+        # Lowercase suffix, as load_data() only globs *.xls
+        dst = etica.DATA_DIR / f'{src.stem}.xls'
+        dst_csv = dst.with_suffix('.csv')
+        if dst_csv.exists():
+            answer = QMessageBox.question(self, 'Replace statement?',
+                                          f'{dst_csv.name} already exists in the data folder.\n'
+                                          f'Replace it with the content of {src.name}?')
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        self._import_and_reload(src, dst, [dst, dst_csv])
+
+    @Slot()
+    def _on_qa_import_blacklist_triggered(self):
+        path, _ = QFileDialog.getOpenFileName(self, 'Import blacklist', str(Path.home()), 'CSV files (*.csv)')
+        if not path:
+            return
+        dst = etica.DATA_DIR / 'blacklist.csv'
+        self._import_and_reload(Path(path), dst, [dst])
+
+    @Slot()
+    def _on_qa_export_data_triggered(self):
+        src = etica.DATA_DIR / 'merged.csv'
+        if not src.exists():
+            QMessageBox.warning(self, 'Export data', f'{src} does not exist yet: no data has been loaded.')
+            return
+        default = Path.home() / f'merged-{datetime.now().strftime(FMT_DT)}.csv'
+        path, _ = QFileDialog.getSaveFileName(self, 'Export merged data', str(default), 'CSV files (*.csv)')
+        if not path:
+            return
+        try:
+            shutil.copyfile(src, path)
+        except OSError as e:
+            QMessageBox.critical(self, 'Export failed', f'Could not write {path}:\n\n{e}')
+            return
+        logging.info(f'Exported {src} to {path}')
+        self.statusbar.showMessage(f'Exported to {path}', 5000)
 
     def _populate_table(self, df: pd.DataFrame):
         logging.debug("Populating qtw_ledger with data...")
@@ -177,21 +263,20 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             out_item = self.ui_ledger.qtw_ledger.item(row_idx, self.__idx_out)
             in_item = self.ui_ledger.qtw_ledger.item(row_idx, self.__idx_in)
             desc_item = self.ui_ledger.qtw_ledger.item(row_idx, self.__idx_desc)
-            bl_item = self.ui_ledger.qtw_ledger.item(row_idx, self.__idx_inv)
+            bl_item = self.ui_ledger.qtw_ledger.item(row_idx, self.__idx_bl)
+            inv_item = self.ui_ledger.qtw_ledger.item(row_idx, self.__idx_inv)
 
             date_val = date_item.text() if date_item else ""
             out_val_str = out_item.text().strip() if out_item else ""
             in_val_str = in_item.text().strip() if in_item else ""
 
-            # Keep original case for regex evaluation, lowercase for free-text search
-            desc_val_original = desc_item.text() if desc_item else ""
-            desc_val_lower = desc_val_original.lower()
+            # Lowercase for case-insensitive free-text search
+            desc_val_lower = desc_item.text().lower() if desc_item else ""
             bl_val = int(bl_item.text().strip()) if (bl_item and bl_item.text().strip()) else 0
+            inv_val = int(inv_item.text().strip()) if (inv_item and inv_item.text().strip()) else 0
 
             is_out_row = bool(out_val_str)
             is_in_row = bool(in_val_str)
-            # Determine if this row is an Investment based on the regex
-            is_inv = bool(self.__inv_pattern.search(desc_val_original))
 
             # Filter checks
             if bl_veto and bl_val == 1:
@@ -201,10 +286,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self.ui_ledger.qtw_ledger.setRowHidden(row_idx, True)
                 continue
 
-            if inv_veto and is_inv:
+            if inv_veto and inv_val == 1:
                 self.ui_ledger.qtw_ledger.setRowHidden(row_idx, True)
                 continue
-            if inv_force and not is_inv:
+            if inv_force and inv_val == 0:
                 self.ui_ledger.qtw_ledger.setRowHidden(row_idx, True)
                 continue
 
@@ -296,9 +381,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.stats_in.update_stats(visible_in)
         self.stats_all.update_stats(visible_all)
 
-        logging.info(f"Filters applied: out checked={out_checked}, in checked={in_checked},"
-                     f"out range=({out_min}, {out_max}), in range=({in_min}, {in_max}),"
-                     f"Description contains='{desc_text}', Date range=({start_date_str}, {end_date_str}),"
+        logging.info(f"Filters applied:\n\tout checked={out_checked}, in checked={in_checked}\n\t"
+                     f"out range=({out_min}, {out_max}), in range=({in_min}, {in_max})\n\t"
+                     f"Description contains='{desc_text}', Date range=({start_date_str}, {end_date_str})\n\t"
                      f"Modes=(bl_force: {bl_force}, bl_veto: {bl_veto}, inv_force: {inv_force}, inv_veto: {inv_veto})")
 
         self.df_plot = pd.DataFrame(plot_data)
@@ -460,7 +545,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         _df_all[COL_RUN_TOT] = (pd.to_numeric(_df_all[COL_PLUS], errors='coerce').fillna(0) + \
                                 pd.to_numeric(_df_all[COL_MINUS], errors='coerce').fillna(0)).cumsum()
 
-        expected_cols = [COL_DATA, COL_PLUS, COL_MINUS, COL_DESCR, COL_INV, COL_RUN_TOT]
+        expected_cols = [COL_DATA, COL_PLUS, COL_MINUS, COL_DESCR, COL_BL, COL_INV, COL_RUN_TOT]
         missing_cols = [col for col in expected_cols if col not in _df_all.columns]
 
         if missing_cols:
@@ -483,9 +568,15 @@ def main():
     logging.debug(f"Setting application icon from: {icon}")
     app.setWindowIcon(QIcon(icon))
 
-    window = MainWindow()
+    try:
+        window = MainWindow()
+    except KeyboardInterrupt:
+        # Ctrl+C while loading, before the event loop runs
+        logging.critical("Interrupted while starting up")
+        sys.exit(128 + signal.SIGINT)
     logging.debug("Starting Piggy Bank application")
     window.showMaximized()
+    install_sigint_handler(app)
     logging.debug("Piggy Bank application is now running")
     rv = app.exec()
     logging.critical(f"Exiting Piggy Bank application with return value: {rv}")

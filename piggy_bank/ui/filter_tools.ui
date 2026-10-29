@@ -17,19 +17,6 @@
    <item>
     <layout class="QGridLayout" name="gridLayout">
      <item row="0" column="1">
-      <widget class="QDateEdit" name="qde_start"/>
-     </item>
-     <item row="1" column="0">
-      <widget class="QLabel" name="label_2">
-       <property name="text">
-        <string>To</string>
-       </property>
-       <property name="alignment">
-        <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
-       </property>
-      </widget>
-     </item>
-     <item row="0" column="0">
       <widget class="QLabel" name="label">
        <property name="text">
         <string>From</string>
@@ -39,14 +26,35 @@
        </property>
       </widget>
      </item>
-     <item row="2" column="0">
+     <item row="1" column="0">
       <widget class="QPushButton" name="qpb_reset">
        <property name="text">
         <string>Reset Filters</string>
        </property>
       </widget>
      </item>
-     <item row="0" column="2" rowspan="3">
+     <item row="2" column="2" colspan="3">
+      <widget class="QLineEdit" name="qle_description">
+       <property name="placeholderText">
+        <string>Filter Description...</string>
+       </property>
+      </widget>
+     </item>
+     <item row="0" column="4">
+      <widget class="QDateEdit" name="qde_end">
+       <property name="calendarPopup">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item row="0" column="2">
+      <widget class="QDateEdit" name="qde_start">
+       <property name="calendarPopup">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item row="0" column="6" rowspan="3">
       <widget class="QGroupBox" name="qgb_bl">
        <property name="title">
         <string>Blacklist</string>
@@ -88,17 +96,23 @@
        </layout>
       </widget>
      </item>
-     <item row="2" column="1">
-      <widget class="QLineEdit" name="qle_description">
-       <property name="placeholderText">
-        <string>Filter Description...</string>
+     <item row="1" column="5">
+      <spacer name="horizontalSpacer">
+       <property name="orientation">
+        <enum>Qt::Orientation::Horizontal</enum>
        </property>
-      </widget>
+       <property name="sizeType">
+        <enum>QSizePolicy::Policy::Maximum</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
      </item>
-     <item row="1" column="1">
-      <widget class="QDateEdit" name="qde_end"/>
-     </item>
-     <item row="0" column="3" rowspan="3">
+     <item row="0" column="7" rowspan="3">
       <widget class="QGroupBox" name="qbg_inv">
        <property name="title">
         <string>Investments</string>
@@ -138,6 +152,32 @@
          </widget>
         </item>
        </layout>
+      </widget>
+     </item>
+     <item row="1" column="1">
+      <spacer name="horizontalSpacer_2">
+       <property name="orientation">
+        <enum>Qt::Orientation::Horizontal</enum>
+       </property>
+       <property name="sizeType">
+        <enum>QSizePolicy::Policy::Maximum</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item row="0" column="3">
+      <widget class="QLabel" name="label_2">
+       <property name="text">
+        <string>To</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+       </property>
       </widget>
      </item>
     </layout>
@@ -220,7 +260,7 @@
  <resources/>
  <connections/>
  <buttongroups>
-  <buttongroup name="brg_inv"/>
   <buttongroup name="brg_bl"/>
+  <buttongroup name="brg_inv"/>
  </buttongroups>
 </ui>

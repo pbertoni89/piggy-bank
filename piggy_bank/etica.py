@@ -32,7 +32,8 @@ COL_PLUS = 'Avere'
 COL_MINUS = 'Dare'
 COL_IMP = 'Importo'
 COL_DESCR = 'Descrizione'
-COL_INV = 'Blacklisted'
+COL_BL = 'Blacklisted'
+COL_INV = 'Investment'
 COL_OLS = 'OLS'
 
 FMT_DT = '%Y%m%d'
@@ -57,7 +58,7 @@ def load_data() -> pd.DataFrame:
     for xls_path in DATA_DIR.glob('*.xls'):
         try:
             df_xls = pd.read_excel(xls_path)
-            # Drop unnecessary columns if they exist, mimicking old behavior
+            # Drop unnecessary columns if they exist, mimicking old behaviour
             df_xls = df_xls.drop(columns=['Valuta', 'Divisa', 'Causale'], errors='ignore')
 
             csv_path = xls_path.with_suffix('.csv')
@@ -121,7 +122,7 @@ def load_data() -> pd.DataFrame:
             df_blacklist = df_blacklist[~empty_mask]
 
         # Add blacklist column to df_merged (default 0) and flag matches
-        df_merged[COL_INV] = 0
+        df_merged[COL_BL] = 0
 
         for _, bl_row in df_blacklist.iterrows():
             # Check if this is a wildcard description match (Amounts are NaN, but Description exists)
@@ -136,7 +137,7 @@ def load_data() -> pd.DataFrame:
                 n_matches = len(matches)
 
                 if n_matches > 0:
-                    df_merged.loc[cond, COL_INV] = 1
+                    df_merged.loc[cond, COL_BL] = 1
                     _lg.info(f"Blacklisted {n_matches} entries matching wildcard: '{wildcard_str}'")
                 else:
                     _lg.error(f"No match found in data for wildcard blacklist entry: '{wildcard_str}'")
@@ -153,7 +154,7 @@ def load_data() -> pd.DataFrame:
                 n_matches = len(matches)
 
                 if n_matches == 1:
-                    df_merged.loc[cond, COL_INV] = 1
+                    df_merged.loc[cond, COL_BL] = 1
                     descr, plus, minus = bl_row[COL_DESCR], bl_row[COL_PLUS], bl_row[COL_MINUS]
                     imp = f"{(plus if pd.notna(plus) else minus)} EUR"
                     _lg.info(f"Blacklisted entry matched: {bl_row[COL_DATA].date()}, {imp}, {descr}")
@@ -163,7 +164,7 @@ def load_data() -> pd.DataFrame:
                     _lg.error(f"No match found in data for blacklist entry: {bl_row.to_dict()}")
     else:
         # If no blacklist exists, nothing is blacklisted
-        df_merged[COL_INV] = 0
+        df_merged[COL_BL] = 0
 
     # 7) Strip away noisy text in Descrizione. TODO put in a separate config file for easier maintenance
     stripped_parts = [("CARTA N. 416363******7346 - CIRCUITO VISA", ""),
@@ -176,6 +177,10 @@ def load_data() -> pd.DataFrame:
                       ("BONIFICO A VOSTRO FAVORE", "<BONIF>"),]
     for old, new in stripped_parts:
         df_merged[COL_DESCR] = df_merged[COL_DESCR].str.replace(old, new, regex=False).str.strip()
+
+    # 8) Flag investments (0/1) on the cleaned description, side by side with the blacklist column
+    df_merged[COL_INV] = df_merged[COL_DESCR].str.contains(INV_REGEX, case=True, na=False, regex=True).astype(int)
+    _lg.info(f"Flagged {df_merged[COL_INV].sum()} investment-related entries")
     return df_merged
 
 
@@ -362,7 +367,7 @@ def plot_candlestick_interactive(df: pd.DataFrame, lbl: str) -> None:
 def filter_investments(df: pd.DataFrame) -> pd.DataFrame:
     """Filters investment transactions and appends synthetic bias rows."""
 
-    mask = df[COL_DESCR].str.contains(INV_REGEX, case=True, na=False, regex=True)
+    mask = df[COL_INV] == 1
     rv = df[mask].reset_index(drop=True).copy()
     rv = rv.drop(columns=[COL_OLS], errors='ignore')
     rv = compute_importo(rv)

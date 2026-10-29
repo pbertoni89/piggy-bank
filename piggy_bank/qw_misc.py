@@ -1,7 +1,10 @@
 import logging
+import signal
+from typing import Optional
+
 import plotly.graph_objects as go
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer, QCoreApplication
 from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout, QTableWidgetItem
 from PySide6.QtGui import QColor
 
@@ -16,6 +19,23 @@ except ImportError:
 from piggy_bank.ui.ledger_rc import Ui_Ledger
 from piggy_bank.ui.plots_lines_rc import Ui_PlotsLines
 from piggy_bank.ui.plots_stats_rc import Ui_PlotsStats
+
+
+def install_sigint_handler(app: QCoreApplication, interval_ms: int = 200) -> QTimer:
+    """Makes SIGINT (Ctrl+C) quit the Qt event loop gracefully, with exit code 128 + SIGINT = 130.
+
+    Python only runs signal handlers when the interpreter gets control back, which never happens
+    while Qt sits idle in its C++ event loop. A periodic no-op timer hands control back to Python.
+    """
+    def _on_sigint(signum, _frame):
+        logging.warning('SIGINT received, quitting')
+        app.exit(128 + signum)
+
+    signal.signal(signal.SIGINT, _on_sigint)
+    timer = QTimer(app)
+    timer.timeout.connect(lambda: None)
+    timer.start(interval_ms)
+    return timer
 
 
 def get_html_centered_message(msg: str) -> str:
@@ -48,7 +68,7 @@ def get_html_centered_message(msg: str) -> str:
 
 class WebEnginePlotManager(QWidget):
     """Encapsulates a single Plotly go.Figure into a QWebEngineView."""
-    def __init__(self, parent=None):
+    def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
 
         layout = QVBoxLayout(self)
@@ -56,7 +76,7 @@ class WebEnginePlotManager(QWidget):
 
         if HAS_WEBENGINE:
             self.web_view = QWebEngineView()
-            # Force background color instantly to prevent white flashing during load
+            # Force background colour instantly to prevent white flashing during load
             self.web_view.page().setBackgroundColor(QColor('#111111'))
             self.web_view.setHtml(get_html_centered_message("Loading data..."))
             layout.addWidget(self.web_view)
@@ -67,7 +87,7 @@ class WebEnginePlotManager(QWidget):
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             layout.addWidget(lbl)
 
-    def render_figure(self, fig: go.Figure):
+    def render_figure(self, fig: Optional[go.Figure]):
         """Generates the HTML for the provided Plotly figure and sends it to the webview."""
         if not HAS_WEBENGINE or self.web_view is None:
             return
@@ -106,20 +126,20 @@ class NumericTableWidgetItem(QTableWidgetItem):
 
 class Ledger(QWidget, Ui_Ledger):
     """Custom widget to handle the ledger table."""
-    def __init__(self, parent=None):
+    def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setupUi(self)
 
 
 class PlotsLines(QWidget, Ui_PlotsLines):
     """Custom widget to handle the line plots."""
-    def __init__(self, parent=None):
+    def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setupUi(self)
 
 
 class PlotsStats(QWidget, Ui_PlotsStats):
     """Custom widget to handle the statistical plots."""
-    def __init__(self, parent=None):
+    def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setupUi(self)

@@ -3,7 +3,7 @@ import math
 import pandas as pd
 import pytest
 
-from piggy_bank.etica import (COL_DATA, COL_MINUS, COL_PLUS, COL_DESCR, COL_RUN_TOT, COL_OLS, COL_IMP,
+from piggy_bank.etica import (COL_DATA, COL_MINUS, COL_PLUS, COL_DESCR, COL_RUN_TOT, COL_OLS, COL_IMP, COL_INV,
                               compute_importo, compute_ols, compute_candlesticks, filter_investments,
                               sort_by_data_contabile)
 
@@ -63,13 +63,14 @@ def test_compute_candlesticks_bad_timeframe_returns_empty():
     assert compute_candlesticks(df, 'NOT_A_FREQ').empty
 
 
-def test_filter_investments_uses_regex_and_recomputes_total():
-    df = compute_importo(ledger([
+def test_filter_investments_uses_column_and_recomputes_total():
+    df = ledger([
         ('2025-01-01', -100.0, None, 'SOTTOSCRIZIONE FONDI'),
         ('2025-01-02', -5.0, None, 'PIZZA'),
         ('2025-01-03', None, 3.0, 'CEDOLE BTP'),
-        ('2025-01-04', None, 1.0, 'cedole lowercase'),  # case sensitive: not matched
-    ]))
+    ])
+    df[COL_INV] = [1, 0, 1]
+    df = compute_importo(df)
 
     out = filter_investments(df)
 

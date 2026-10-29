@@ -2,7 +2,7 @@ import pandas as pd
 import pytest
 
 from piggy_bank import etica
-from piggy_bank.etica import COL_DATA, COL_MINUS, COL_PLUS, COL_DESCR, COL_INV, load_data
+from piggy_bank.etica import COL_DATA, COL_MINUS, COL_PLUS, COL_DESCR, COL_BL, COL_INV, load_data
 
 
 def test_merges_and_sorts_all_statements(write_csv, data_dir):
@@ -18,7 +18,7 @@ def test_merges_and_sorts_all_statements(write_csv, data_dir):
 
     assert list(df[COL_DESCR]) == ['BREAD', 'SALARY', 'COFFEE']
     assert pd.api.types.is_datetime64_any_dtype(df[COL_DATA])
-    assert (df[COL_INV] == 0).all()
+    assert (df[COL_BL] == 0).all()
 
 
 def test_same_date_order_is_deterministic(write_csv):
@@ -95,12 +95,36 @@ def test_description_noise_is_stripped(write_csv):
     assert list(df[COL_DESCR]) == ['<BONIF> MARIO', '<BONIF> LUIGI']
 
 
+def test_investments_are_flagged(write_csv):
+    write_csv('a.csv', [
+        ('2025-01-01', -100.0, None, 'SOTTOSCRIZIONE FONDI'),
+        ('2025-01-02', -5.0, None, 'PIZZA'),
+        ('2025-01-03', None, 3.0, 'CEDOLE BTP'),
+        ('2025-01-04', None, 1.0, 'cedole lowercase'),  # case sensitive: not an investment
+        ('2025-01-05', -50.0, None, 'GIROCONTO DEPOSITO'),  # substring: DEPOSIT
+    ])
+
+    df = load_data()
+
+    assert list(df[COL_INV]) == [1, 0, 1, 0, 1]
+
+
+def test_investment_and_blacklist_are_independent(write_csv):
+    write_csv('a.csv', [('2025-01-01', -100.0, None, 'VERSAMENTO FONDI'), ('2025-01-02', -5.0, None, 'PIZZA')])
+    write_csv('blacklist.csv', [(None, None, None, 'PIZZA')])
+
+    df = load_data()
+
+    assert list(df[COL_INV]) == [1, 0]
+    assert list(df[COL_BL]) == [0, 1]
+
+
 def test_no_blacklist_file(write_csv):
     write_csv('a.csv', [('2025-01-01', -1.0, None, 'X')])
 
     df = load_data()
 
-    assert list(df[COL_INV]) == [0]
+    assert list(df[COL_BL]) == [0]
     assert COL_DESCR in df.columns
 
 
@@ -117,7 +141,7 @@ class TestBlacklist:
         ])
 
     def flagged(self, df):
-        return list(df.loc[df[COL_INV] == 1, COL_DESCR])
+        return list(df.loc[df[COL_BL] == 1, COL_DESCR])
 
     def test_exact_entry_by_dare(self, statements, write_csv):
         write_csv('blacklist.csv', [('2025-01-01', -100.0, None, 'any note')])
