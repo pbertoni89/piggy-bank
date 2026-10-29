@@ -74,7 +74,7 @@
     </item>
    </layout>
   </widget>
-  <widget class="QMenuBar" name="menubar">
+  <widget class="QMenuBar" name="qmb">
    <property name="geometry">
     <rect>
      <x>0</x>
@@ -83,20 +83,32 @@
      <height>23</height>
     </rect>
    </property>
-   <widget class="QMenu" name="menuLorem">
+   <widget class="QMenu" name="qm_file">
     <property name="title">
-     <string>Lorem</string>
+     <string>File</string>
     </property>
+    <addaction name="qa_import_data"/>
+    <addaction name="qa_export_data"/>
    </widget>
    <widget class="QMenu" name="menuIpsum">
     <property name="title">
      <string>Ipsum</string>
     </property>
    </widget>
-   <addaction name="menuLorem"/>
+   <addaction name="qm_file"/>
    <addaction name="menuIpsum"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
+  <action name="qa_import_data">
+   <property name="text">
+    <string>Import data</string>
+   </property>
+  </action>
+  <action name="qa_export_data">
+   <property name="text">
+    <string>Export data</string>
+   </property>
+  </action>
  </widget>
  <resources/>
  <connections/>

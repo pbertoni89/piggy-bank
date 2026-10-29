@@ -1,5 +1,5 @@
 from PySide6.QtCore import Signal, QDate, QTimer, Slot
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QWidget, QAbstractButton
 
 from piggy_bank.etica import *
 from piggy_bank.ui.filter_tools_rc import Ui_FilterTools
@@ -21,9 +21,11 @@ class FilterTools(QWidget, Ui_FilterTools):
         self._default_out_range = (0, 1000)
         self._default_in_range = (0, 1000)
 
-        # Setup Default Filter State for Radio Buttons
-        if not any([qrb.isChecked() for qrb in [self.qrb_all, self.qrb_bl_no, self.qrb_bl_only, self.qrb_inv_only, self.qrb_inv_no]]):
-            self.qrb_all.setChecked(True)
+        # Radio button groups and their default (checked) button both come from the .ui
+        self.__brg_defaults = {brg: brg.checkedButton() for brg in (self.brg_bl, self.brg_inv)}
+        for brg, qrb_default in self.__brg_defaults.items():
+            if qrb_default is None:
+                raise RuntimeError(f'No radio button is checked by default in {brg.objectName()}, fix the .ui')
 
         # --- Set up the debouncing timer ---
         self.__timer = QTimer(self)
@@ -48,11 +50,8 @@ class FilterTools(QWidget, Ui_FilterTools):
         self.qrs_in.valueChanged.connect(self._on_qrs_in_valueChanged)
         self.qchk_out.toggled.connect(self._on_qchk_out_toggled)
         self.qchk_in.toggled.connect(self._on_qchk_in_toggled)
-        self.qrb_all.toggled.connect(self._on_bg_filter_toggled)
-        self.qrb_bl_no.toggled.connect(self._on_bg_filter_toggled)
-        self.qrb_bl_only.toggled.connect(self._on_bg_filter_toggled)
-        self.qrb_inv_only.toggled.connect(self._on_bg_filter_toggled)
-        self.qrb_inv_no.toggled.connect(self._on_bg_filter_toggled)
+        for brg in self.__brg_defaults:
+            brg.buttonToggled.connect(self._on_brg_buttonToggled)
 
         self.qle_description.textChanged.connect(self._on_qle_description_textChanged)
         self.qde_start.dateChanged.connect(self._on_qde_start_dateChanged)
@@ -97,14 +96,15 @@ class FilterTools(QWidget, Ui_FilterTools):
         logging.info("Resetting UI filters to startup state...")
 
         # Block signals temporarily to prevent massive UI cascading
-        controls = [self.qrb_all, self.qchk_in, self.qchk_out,
+        controls = [*self.__brg_defaults, self.qchk_in, self.qchk_out,
                     self.qle_description, self.qde_start, self.qde_end, self.qrs_in, self.qrs_out]
 
         for widget in controls:
             widget.blockSignals(True)
 
         # Restore states
-        self.qrb_all.setChecked(True)
+        for qrb_default in self.__brg_defaults.values():
+            qrb_default.setChecked(True)
         self.qchk_in.setChecked(True)
         self.qchk_out.setChecked(True)
 
@@ -155,8 +155,8 @@ class FilterTools(QWidget, Ui_FilterTools):
         self.qrs_in.setEnabled(checked)
         self.filters_updated.emit()
 
-    @Slot(bool)
-    def _on_bg_filter_toggled(self, checked):
+    @Slot(QAbstractButton, bool)
+    def _on_brg_buttonToggled(self, button, checked):
         if checked:
             self.__timer.start()
 

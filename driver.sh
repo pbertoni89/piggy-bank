@@ -1,10 +1,10 @@
 #!/bin/bash
 dirRoot="$(dirname "${BASH_SOURCE[0]}")"
-source "$dirRoot/.venv/bin/activate"
+source "${dirRoot}/.venv/bin/activate"
 
 
 function run_designer() {
-  nohup pyside6-designer &
+  nohup pyside6-designer "${dirRoot}/piggy_bank/ui/"*.ui &
 }
 
 
@@ -46,18 +46,31 @@ function build_run_ui() {
 }
 
 
+function run_tests() {
+  # Build first, otherwise the widget tests are skipped
+  build_ui || return $?
+  pushd "${dirRoot}" > /dev/null || return 1
+  python -m pytest "$@"
+  local rc=${?}
+  popd > /dev/null || return 1
+  return ${rc}
+}
+
+
 function usage() {
-  echo "Usage: $0 [-d] [-r] [-b] [-h] [-i]"
+  echo "Usage: $0 [-d] [-r] [-b] [-h] [-i] [-t [pytest args...]]"
   echo "  -d: Run Qt Designer"
   echo "  -r: Build and run the UI"
   echo "  -i: Run the headless driver"
   echo "  -b: Build the UI"
+  echo "  -t: Build the UI and run the test suite (extra args go to pytest)"
   echo "  -h: Show this help message"
   exit "${1:-0}"
 }
 
 
-getopts "drbhi" opt
+getopts "drbhit" opt
+shift $((OPTIND - 1))
 case ${opt} in
   d)
     run_designer
@@ -73,6 +86,10 @@ case ${opt} in
     ;;
   b)
     build_ui
+    ;;
+  t)
+    run_tests "$@"
+    exit ${?}
     ;;
   h)
     usage 0

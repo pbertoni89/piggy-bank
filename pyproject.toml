@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "piggy-bank"
 version = "0.2.0"
-description = "Environment for JupyterLab"
+description = "Personal finance analyser for Banca Etica bank statements, with a PySide6 GUI"
 readme = "README.md"
 authors = [{ name = "pbertoni89" }]
-license = { text = "Proprietary" }
+license = { text = "GPL-3.0-or-later" }
 requires-python = ">=3.10"
-keywords = ["jupyter",]
+keywords = ["finance", "bank", "pandas", "pyside6", "plotly"]
 
 # Core runtime dependencies
 dependencies = [
@@ -22,32 +22,43 @@ dependencies = [
     "matplotlib",
     "plotly",
 
-    # ML & GPU Support
-    "scikit-learn",
-
-    # Excel / file formats
-    "openpyxl",
+    # Excel / file formats (bank exports are legacy .xls)
     "xlrd",
-    "xlwt",
 
     # Utils
-    "PyYAML",
     "colorama",
+    "coloredlogs",
 
     # HMI
-    "Pyside6"
+    "PySide6",  # also pulls in QtWebEngine, used to render Plotly figures
+    "superqt",  # QRangeSlider
 ]
 
 [project.urls]
 homepage = "https://github.com/pbertoni89/piggy-bank"
 
 [project.optional-dependencies]
-dev = [
+notebook = [
+    "jupyterlab",
     "ipython",
+]
+dev = [
     "pytest",
+    "pytest-qt",
     "black",
     "flake8",
 ]
 
-[tool.setuptools]
-# Minimal config
+[project.scripts]
+piggy-bank = "piggy_bank.main_window:main"
+
+[tool.setuptools.packages.find]
+include = ["piggy_bank*"]
+namespaces = true
+
+[tool.setuptools.package-data]
+"piggy_bank.ui" = ["*.ui", "*.png"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

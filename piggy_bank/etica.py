@@ -38,6 +38,9 @@ COL_OLS = 'OLS'
 FMT_DT = '%Y%m%d'
 FMT_DT_CSV = '%Y-%m-%d'  # Format used in CSV files for dates
 
+# Descrizione keywords marking investment-related transactions
+INV_REGEX = 'FONDI|PROVENTI|CEDOLE|DEPOSIT'
+
 # Adjust this path to match your notebook location relative to the data
 # Currently assumes the notebook is in the same folder as the original script
 DATA_DIR = Path(__file__).parent.parent / 'data' / 'etica'
@@ -159,9 +162,7 @@ def load_data() -> pd.DataFrame:
                 else:
                     _lg.error(f"No match found in data for blacklist entry: {bl_row.to_dict()}")
     else:
-        # If no blacklist exists, ensure uniform structure
-        if COL_DESCR in df_merged.columns:
-            df_merged = df_merged.drop(columns=[COL_DESCR])
+        # If no blacklist exists, nothing is blacklisted
         df_merged[COL_INV] = 0
 
     # 7) Strip away noisy text in Descrizione. TODO put in a separate config file for easier maintenance
@@ -361,7 +362,7 @@ def plot_candlestick_interactive(df: pd.DataFrame, lbl: str) -> None:
 def filter_investments(df: pd.DataFrame) -> pd.DataFrame:
     """Filters investment transactions and appends synthetic bias rows."""
 
-    mask = df[COL_DESCR].str.contains('FONDI|PROVENTI|CEDOLE|DEPOSIT', case=True, na=False, regex=True)
+    mask = df[COL_DESCR].str.contains(INV_REGEX, case=True, na=False, regex=True)
     rv = df[mask].reset_index(drop=True).copy()
     rv = rv.drop(columns=[COL_OLS], errors='ignore')
     rv = compute_importo(rv)

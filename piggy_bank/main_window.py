@@ -67,7 +67,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.ui_plots_lines.ql_candle.addWidget(self.plot_candles)
 
         # Compile the investment regex pattern
-        self.__inv_pattern = re.compile(r'FONDI|PROVENTI|CEDOLE|DEPOSIT')
+        self.__inv_pattern = re.compile(INV_REGEX)
 
         # Cache column indices dynamically to avoid hardcoding
         self.__idx_data = df.columns.get_loc(COL_DATA)
@@ -156,10 +156,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         start_date_str = self.ft.qde_start.date().toString("yyyy-MM-dd")
         end_date_str = self.ft.qde_end.date().toString("yyyy-MM-dd")
 
-        show_no_bl = self.ft.qrb_bl_no.isChecked()
-        show_only_bl = self.ft.qrb_bl_only.isChecked()
-        show_no_inv = self.ft.qrb_inv_no.isChecked()
-        show_only_inv = self.ft.qrb_inv_only.isChecked()
+        bl_veto = self.ft.qrb_bl_veto.isChecked()
+        bl_force = self.ft.qrb_bl_force.isChecked()
+        inv_veto = self.ft.qrb_inv_veto.isChecked()
+        inv_force = self.ft.qrb_inv_force.isChecked()
 
         out_min, out_max = self.ft.qrs_out.value()
         in_min, in_max = self.ft.qrs_in.value()
@@ -194,17 +194,17 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             is_inv = bool(self.__inv_pattern.search(desc_val_original))
 
             # Filter checks
-            if show_no_bl and bl_val == 1:
+            if bl_veto and bl_val == 1:
                 self.ui_ledger.qtw_ledger.setRowHidden(row_idx, True)
                 continue
-            if show_only_bl and bl_val == 0:
+            if bl_force and bl_val == 0:
                 self.ui_ledger.qtw_ledger.setRowHidden(row_idx, True)
                 continue
 
-            if show_no_inv and is_inv:
+            if inv_veto and is_inv:
                 self.ui_ledger.qtw_ledger.setRowHidden(row_idx, True)
                 continue
-            if show_only_inv and not is_inv:
+            if inv_force and not is_inv:
                 self.ui_ledger.qtw_ledger.setRowHidden(row_idx, True)
                 continue
 
@@ -299,7 +299,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         logging.info(f"Filters applied: out checked={out_checked}, in checked={in_checked},"
                      f"out range=({out_min}, {out_max}), in range=({in_min}, {in_max}),"
                      f"Description contains='{desc_text}', Date range=({start_date_str}, {end_date_str}),"
-                     f"Modes=(no_bl: {show_no_bl}, only_bl: {show_only_bl}, no_inv: {show_no_inv}, only_inv: {show_only_inv})")
+                     f"Modes=(bl_force: {bl_force}, bl_veto: {bl_veto}, inv_force: {inv_force}, inv_veto: {inv_veto})")
 
         self.df_plot = pd.DataFrame(plot_data)
         self._update_plot()
