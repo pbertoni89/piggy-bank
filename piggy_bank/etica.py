@@ -39,8 +39,15 @@ COL_OLS = 'OLS'
 FMT_DT = '%Y%m%d'
 FMT_DT_CSV = '%Y-%m-%d'  # Format used in CSV files for dates
 
-# Descrizione keywords marking investment-related transactions
+# Descrizione keywords marking investment-related transactions (matched case-insensitively)
 INV_REGEX = 'FONDI|PROVENTI|CEDOLE|DEPOSIT'
+
+# Filter modes for the Blacklisted and Investment flags, the same as the GUI All/Force/Veto radio buttons.
+# Both flags are at the same level: each one is filtered independently, then the two are AND-ed.
+MODE_ALL = 'all'      # no constraint
+MODE_FORCE = 'force'  # keep only flagged rows
+MODE_VETO = 'veto'    # drop flagged rows
+MODES = (MODE_ALL, MODE_FORCE, MODE_VETO)
 
 # Adjust this path to match your notebook location relative to the data
 # Currently assumes the notebook is in the same folder as the original script
@@ -179,7 +186,7 @@ def load_data() -> pd.DataFrame:
         df_merged[COL_DESCR] = df_merged[COL_DESCR].str.replace(old, new, regex=False).str.strip()
 
     # 8) Flag investments (0/1) on the cleaned description, side by side with the blacklist column
-    df_merged[COL_INV] = df_merged[COL_DESCR].str.contains(INV_REGEX, case=True, na=False, regex=True).astype(int)
+    df_merged[COL_INV] = df_merged[COL_DESCR].str.contains(INV_REGEX, case=False, na=False, regex=True).astype(int)
     _lg.info(f"Flagged {df_merged[COL_INV].sum()} investment-related entries")
     return df_merged
 
@@ -241,35 +248,24 @@ def compute_ols(df: pd.DataFrame) -> Tuple[pd.DataFrame, float, float]:
         return df, float('nan'), float('nan')
 
 
-def plot_saldo_ols(_df1: pd.DataFrame, _df2: pd.DataFrame) -> None:
-    """Plots 'Saldo' and OLS fit over time for two dataframes on the same graph."""
-    # Compute OLS for both dataframes
-    df1, m1, q1 = compute_ols(_df1)
-    df2, m2, q2 = compute_ols(_df2)
-
+def plot_saldo_ols(views: dict) -> None:
+    """Plots running total and OLS fit over time of every view {label: df} on the same graph."""
     fig, ax1 = plt.subplots(figsize=(12, 6))
+    colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+    fits = []
 
-    # Plot df1 (overall balance) in blue
-    ax1.plot(df1[COL_DATA], df1[COL_RUN_TOT], label='Saldo netto', color='tab:blue')
-    ax1.plot(df1[COL_DATA], df1[COL_OLS], label='OLS fit netto', color='tab:orange', linestyle='--')
-
-    # Plot df2 (investment balance) in green
-    ax1.plot(df2[COL_DATA], df2[COL_RUN_TOT], label='Saldo grezzo', color='tab:green')
-    ax1.plot(df2[COL_DATA], df2[COL_OLS], label='OLS fit grezzo', color='tab:red', linestyle='--')
+    for i, (lbl, df) in enumerate(views.items()):
+        df, m, q = compute_ols(df)
+        color = colors[i % len(colors)]
+        ax1.plot(df[COL_DATA], df[COL_RUN_TOT], label=lbl, color=color)
+        ax1.plot(df[COL_DATA], df[COL_OLS], label=f'OLS {lbl}', color=color, linestyle='--')
+        fits.append(f'{lbl}: y = {m:.2f}x + {q:.2f}')
 
     ax1.set_ylabel(COL_RUN_TOT)
     ax1.legend()
     ax1.grid(True)
 
-    all_saldos = pd.concat([df1[COL_RUN_TOT], df2[COL_RUN_TOT]]).dropna()
-    if not all_saldos.empty:
-        max_saldo_ever = all_saldos.max()
-        if type(max_saldo_ever) in [np.float64, float]:
-            ax1.set_ylim(0, max_saldo_ever * 1.1)
-
-    label = (f'OLS Saldo: y = {m1:.2f}x + {q1:.2f}\n'
-             f'OLS Inv:   y = {m2:.2f}x + {q2:.2f}')
-    ax1.text(0.01, 0.99, label, transform=ax1.transAxes, fontsize=10,
+    ax1.text(0.01, 0.99, '\n'.join(fits), transform=ax1.transAxes, fontsize=10,
              verticalalignment='top', bbox=dict(facecolor='white', alpha=0.7, edgecolor='none'))
 
     ax1.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=10, maxticks=20))
@@ -279,32 +275,18 @@ def plot_saldo_ols(_df1: pd.DataFrame, _df2: pd.DataFrame) -> None:
     plt.show()
 
 
-def plot_saldo_ols_interactive(_df_net: pd.DataFrame, _df_all: pd.DataFrame) -> None:
-    """Interactive Plotly plot of _df_net and _df_all with OLS lines, zoomable and hoverable."""
+def plot_saldo_ols_interactive(views: dict) -> None:
+    """Interactive Plotly plot of every view {label: df} with its OLS line, zoomable and hoverable."""
     fig = go.Figure()
 
-    # Add net balance line
-    fig.add_trace(go.Scatter(x=_df_net[COL_DATA], y=_df_net[COL_RUN_TOT],
-                             mode='lines', name='Saldo netto',
-                             line=dict(color='#1f77b4', width=2)))
+    for lbl, df in views.items():
+        df, m, _ = compute_ols(df)
+        fig.add_trace(go.Scatter(x=df[COL_DATA], y=df[COL_RUN_TOT], mode='lines', name=lbl, line=dict(width=2)))
+        fig.add_trace(go.Scatter(x=df[COL_DATA], y=df[COL_OLS], mode='lines', name=f'OLS {lbl} (m = {m:.2f})',
+                                 line=dict(width=2, dash='dash')))
 
-    # Add net OLS line
-    fig.add_trace(go.Scatter(x=_df_net[COL_DATA], y=_df_net[COL_OLS],
-                             mode='lines', name='OLS fit netto',
-                             line=dict(color='#ff7f0e', width=2, dash='dash')))
-
-    # Add all balance line
-    fig.add_trace(go.Scatter(x=_df_all[COL_DATA], y=_df_all[COL_RUN_TOT],
-                             mode='lines', name='Saldo grezzo',
-                             line=dict(color='#2ca02c', width=2)))
-
-    # Add all OLS line
-    fig.add_trace(go.Scatter(x=_df_all[COL_DATA], y=_df_all[COL_OLS],
-                             mode='lines', name='OLS fit grezzo',
-                             line=dict(color='#d62728', width=2, dash='dash')))
-
-    fig.update_layout(title='Saldo and OLS Fit (Interactive, Zoomable & Hoverable)',
-                      xaxis_title='Data contabile',
+    fig.update_layout(title='Running Total and OLS Fit (Interactive, Zoomable & Hoverable)',
+                      xaxis_title=COL_DATA,
                       yaxis_title=COL_RUN_TOT,
                       hovermode='x unified',
                       template='plotly_white',
@@ -364,40 +346,66 @@ def plot_candlestick_interactive(df: pd.DataFrame, lbl: str) -> None:
     fig.show()
 
 
-def filter_investments(df: pd.DataFrame) -> pd.DataFrame:
-    """Filters investment transactions and appends synthetic bias rows."""
+def mode_keeps(mode: str, flag: int) -> bool:
+    """Whether a row with this 0/1 flag passes the filter mode."""
+    if mode == MODE_ALL:
+        return True
+    if mode == MODE_FORCE:
+        return flag == 1
+    if mode == MODE_VETO:
+        return flag == 0
+    raise ValueError(f'Unknown filter mode {mode!r}, expected one of {MODES}')
 
-    mask = df[COL_INV] == 1
-    rv = df[mask].reset_index(drop=True).copy()
-    rv = rv.drop(columns=[COL_OLS], errors='ignore')
+
+def apply_modes(df: pd.DataFrame, bl: str = MODE_ALL, inv: str = MODE_ALL) -> pd.DataFrame:
+    """Filters df on the Blacklisted and Investment flags, exactly as the GUI radio buttons do."""
+    keep = pd.Series(True, index=df.index)
+    for mode, col in ((bl, COL_BL), (inv, COL_INV)):
+        keep &= df[col].map(lambda flag: mode_keeps(mode, flag))
+    return df[keep].reset_index(drop=True)
+
+
+def view_label(bl: str = MODE_ALL, inv: str = MODE_ALL) -> str:
+    return f'BL {bl}, INV {inv}'
+
+
+def build_view(df: pd.DataFrame, bl: str = MODE_ALL, inv: str = MODE_ALL) -> Tuple[pd.DataFrame, float, float]:
+    """Filters df by modes, then computes its own running total and OLS fit. Returns (view, m, q)."""
+    rv = apply_modes(df, bl=bl, inv=inv).drop(columns=[COL_RUN_TOT, COL_OLS], errors='ignore')
     rv = compute_importo(rv)
-    _lg.info(f'Found {mask.sum()} = {rv.shape[0]} investment-related transactions.')
-    return rv
+    return compute_ols(rv)
 
 
-def print_investments_summary(df: pd.DataFrame) -> None:
-    _lg.info('Investimenti correttamente chiusi (quelli aperti sono blacklisted!!!):')
-    _lg.info(df.drop(columns=[COL_DESCR], errors='ignore'))
-
+def print_view_summary(df: pd.DataFrame, lbl: str, m: float = float('nan')) -> None:
+    """Logs size, final running total and OLS slope (per day) of a view."""
     if not df.empty:
-        saldo_inv = df[COL_RUN_TOT].iloc[-1]
-        col = Fore.GREEN if saldo_inv >= 0 else Fore.RED
-        saldo_inv = f'{col}{saldo_inv:.2f} EUR{Fore.RESET}'
+        final = df[COL_RUN_TOT].iloc[-1]
+        col = Fore.GREEN if final >= 0 else Fore.RED
+        final = f'{col}{final:.2f} EUR{Fore.RESET}'
     else:
-        saldo_inv = 'N/A'
-    _lg.info(f'Saldo finale investimenti: {saldo_inv}')
+        final = 'N/A'
+    _lg.info(f'{lbl}: {len(df)} rows, final running total {final}, trend {m:+.2f} EUR/day')
 
 
-def plot_investments(df: pd.DataFrame) -> None:
-    """Plots the 'Saldo' of investment-related transactions over time."""
+def plot_view_bars(df: pd.DataFrame, lbl: str) -> None:
+    """Plots the running total of a view as bars over time."""
     if not df.empty:
-        fig_inv, ax2 = plt.subplots(figsize=(12, 3))
-        ax2.bar(df[COL_DATA], df[COL_RUN_TOT], color='purple')
-        ax2.set_ylabel(COL_RUN_TOT)
-        ax2.set_title('Investimenti')
-        ax2.grid(True)
-        ax2.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=10, maxticks=20))
-        ax2.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-        fig_inv.autofmt_xdate()
+        fig, ax = plt.subplots(figsize=(12, 3))
+        ax.bar(df[COL_DATA], df[COL_RUN_TOT], color='purple')
+        ax.set_ylabel(COL_RUN_TOT)
+        ax.set_title(lbl)
+        ax.grid(True)
+        ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=10, maxticks=20))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+        fig.autofmt_xdate()
         plt.tight_layout()
         plt.show()
+
+
+# Views shown by driver.py and the notebook: (bl mode, inv mode) pairs, edit to taste
+DEFAULT_VIEWS = [
+    (MODE_ALL, MODE_ALL),
+    (MODE_VETO, MODE_ALL),
+    (MODE_VETO, MODE_VETO),
+    (MODE_ALL, MODE_FORCE),
+]

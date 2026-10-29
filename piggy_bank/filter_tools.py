@@ -28,6 +28,10 @@ class FilterTools(QWidget, Ui_FilterTools):
         for brg, qrb_default in self.__brg_defaults.items():
             if qrb_default is None:
                 raise RuntimeError(f'No radio button is checked by default in {brg.objectName()}, fix the .ui')
+            # Each radio's mode is its objectName suffix, e.g. qrb_bl_force -> 'force'
+            for qrb in brg.buttons():
+                if self.__mode_of(qrb) not in MODES:
+                    raise RuntimeError(f'{qrb.objectName()} in {brg.objectName()} does not end with one of {MODES}, fix the .ui')
 
         # --- Set up the debouncing timer ---
         self.__timer = QTimer(self)
@@ -49,6 +53,18 @@ class FilterTools(QWidget, Ui_FilterTools):
         self.qde_start.dateChanged.connect(self._on_qde_start_dateChanged)
         self.qde_end.dateChanged.connect(self._on_qde_end_dateChanged)
         self.qpb_reset.clicked.connect(self._on_qpb_reset_clicked)
+
+    @staticmethod
+    def __mode_of(qrb) -> str:
+        return qrb.objectName().rsplit('_', 1)[-1]
+
+    def bl_mode(self) -> str:
+        """Blacklist filter mode currently selected: one of etica.MODES."""
+        return self.__mode_of(self.brg_bl.checkedButton())
+
+    def inv_mode(self) -> str:
+        """Investment filter mode currently selected: one of etica.MODES."""
+        return self.__mode_of(self.brg_inv.checkedButton())
 
     def setup_dates(self, df: pd.DataFrame):
         """Sets qde_start and qde_end (and their reset defaults) to the min and max dates of the dataframe."""

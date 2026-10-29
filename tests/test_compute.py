@@ -4,7 +4,8 @@ import pandas as pd
 import pytest
 
 from piggy_bank.etica import (COL_DATA, COL_MINUS, COL_PLUS, COL_DESCR, COL_RUN_TOT, COL_OLS, COL_IMP, COL_INV,
-                              compute_importo, compute_ols, compute_candlesticks, filter_investments,
+                              compute_importo, compute_ols, compute_candlesticks,
+                              COL_BL, MODE_ALL, MODE_FORCE, MODE_VETO, mode_keeps, apply_modes, build_view,
                               sort_by_data_contabile)
 
 
@@ -63,19 +64,50 @@ def test_compute_candlesticks_bad_timeframe_returns_empty():
     assert compute_candlesticks(df, 'NOT_A_FREQ').empty
 
 
-def test_filter_investments_uses_column_and_recomputes_total():
+@pytest.mark.parametrize('mode, kept', [(MODE_ALL, [0, 1]), (MODE_FORCE, [1]), (MODE_VETO, [0])])
+def test_mode_keeps(mode, kept):
+    assert [flag for flag in (0, 1) if mode_keeps(mode, flag)] == kept
+
+
+def test_mode_keeps_rejects_unknown_mode():
+    with pytest.raises(ValueError, match='Unknown filter mode'):
+        mode_keeps('only', 1)
+
+
+@pytest.fixture
+def flagged():
     df = ledger([
-        ('2025-01-01', -100.0, None, 'SOTTOSCRIZIONE FONDI'),
-        ('2025-01-02', -5.0, None, 'PIZZA'),
-        ('2025-01-03', None, 3.0, 'CEDOLE BTP'),
+        ('2025-01-01', -100.0, None, 'BL INV'),
+        ('2025-01-02', -5.0, None, 'BL'),
+        ('2025-01-03', None, 3.0, 'INV'),
+        ('2025-01-04', None, 7.0, 'PLAIN'),
     ])
-    df[COL_INV] = [1, 0, 1]
-    df = compute_importo(df)
+    df[COL_BL] = [1, 1, 0, 0]
+    df[COL_INV] = [1, 0, 1, 0]
+    return df
 
-    out = filter_investments(df)
 
-    assert list(out[COL_DESCR]) == ['SOTTOSCRIZIONE FONDI', 'CEDOLE BTP']
-    assert list(out[COL_RUN_TOT]) == [-100.0, -97.0]
+@pytest.mark.parametrize('bl, inv, expected', [
+    (MODE_ALL, MODE_ALL, ['BL INV', 'BL', 'INV', 'PLAIN']),
+    (MODE_VETO, MODE_ALL, ['INV', 'PLAIN']),
+    (MODE_FORCE, MODE_ALL, ['BL INV', 'BL']),
+    (MODE_ALL, MODE_FORCE, ['BL INV', 'INV']),
+    (MODE_ALL, MODE_VETO, ['BL', 'PLAIN']),
+    (MODE_VETO, MODE_VETO, ['PLAIN']),
+    (MODE_FORCE, MODE_FORCE, ['BL INV']),
+])
+def test_apply_modes_treats_both_flags_alike(flagged, bl, inv, expected):
+    assert list(apply_modes(flagged, bl=bl, inv=inv)[COL_DESCR]) == expected
+
+
+def test_build_view_recomputes_running_total(flagged):
+    flagged = compute_importo(flagged)  # a stale total over all rows must not leak into the view
+
+    view, m, q = build_view(flagged, inv=MODE_FORCE)
+
+    assert list(view[COL_DESCR]) == ['BL INV', 'INV']
+    assert list(view[COL_RUN_TOT]) == [-100.0, -97.0]
+    assert m == pytest.approx(1.5)  # +3 EUR over 2 days
 
 
 def test_sort_by_data_contabile_parses_strings():

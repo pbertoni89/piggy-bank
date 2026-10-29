@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+"""Headless (deprecated) counterpart of the GUI: prints a summary of each view in DEFAULT_VIEWS.
+
+A view is a (bl, inv) pair of filter modes, the same as the GUI All/Force/Veto radio buttons."""
 
 from piggy_bank.etica import *
 
@@ -10,24 +13,9 @@ logging.info('Loading data from %s', DATA_DIR)
 _df_all = load_data()
 
 print(f"Total rows in processed data: {_df_all.shape[0]}")
-print(_df_all.head())
+print(f"Blacklisted: {_df_all[COL_BL].sum()}, Investments: {_df_all[COL_INV].sum()}")
 
-# Filter dataframes using the newly added 'Blacklisted' column
-_df_net = _df_all[_df_all['Blacklisted'] == 0].copy().drop(columns=['Blacklisted'])
-_df_blk = _df_all[_df_all['Blacklisted'] == 1].copy().drop(columns=['Blacklisted'])
-
-print(f'Net entries: {_df_net.shape[0]}')
-print(f'Blacklisted entries: {_df_blk.shape[0]}')
-
-# - - - Process data
-
-_df_net = compute_importo(_df_net)
-_df_net, _m_net, _q_net = compute_ols(_df_net)
-print(_df_net)
-
-_df_all = compute_importo(_df_all)
-_df_all, _m_mov, _q_mov = compute_ols(_df_all)
-print(_df_all)
-
-_df_blk = compute_importo(_df_blk)
-_df_blk, _m_blk, _q_blk = compute_ols(_df_blk)
+# - - - Process data: one filtered view per (bl, inv) pair, each with its own running total and OLS
+for _bl, _inv in DEFAULT_VIEWS:
+    _df_view, _m, _q = build_view(_df_all, bl=_bl, inv=_inv)
+    print_view_summary(_df_view, view_label(_bl, _inv), _m)

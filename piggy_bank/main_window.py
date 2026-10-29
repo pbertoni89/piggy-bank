@@ -242,10 +242,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         start_date_str = self.ft.qde_start.date().toString("yyyy-MM-dd")
         end_date_str = self.ft.qde_end.date().toString("yyyy-MM-dd")
 
-        bl_veto = self.ft.qrb_bl_veto.isChecked()
-        bl_force = self.ft.qrb_bl_force.isChecked()
-        inv_veto = self.ft.qrb_inv_veto.isChecked()
-        inv_force = self.ft.qrb_inv_force.isChecked()
+        bl_mode = self.ft.bl_mode()
+        inv_mode = self.ft.inv_mode()
 
         out_min, out_max = self.ft.qrs_out.value()
         in_min, in_max = self.ft.qrs_in.value()
@@ -278,18 +276,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             is_out_row = bool(out_val_str)
             is_in_row = bool(in_val_str)
 
-            # Filter checks
-            if bl_veto and bl_val == 1:
-                self.ui_ledger.qtw_ledger.setRowHidden(row_idx, True)
-                continue
-            if bl_force and bl_val == 0:
-                self.ui_ledger.qtw_ledger.setRowHidden(row_idx, True)
-                continue
-
-            if inv_veto and inv_val == 1:
-                self.ui_ledger.qtw_ledger.setRowHidden(row_idx, True)
-                continue
-            if inv_force and inv_val == 0:
+            # Filter checks: Blacklisted and Investment flags, same rule as etica.apply_modes()
+            if not (mode_keeps(bl_mode, bl_val) and mode_keeps(inv_mode, inv_val)):
                 self.ui_ledger.qtw_ledger.setRowHidden(row_idx, True)
                 continue
 
@@ -384,7 +372,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         logging.info(f"Filters applied:\n\tout checked={out_checked}, in checked={in_checked}\n\t"
                      f"out range=({out_min}, {out_max}), in range=({in_min}, {in_max})\n\t"
                      f"Description contains='{desc_text}', Date range=({start_date_str}, {end_date_str})\n\t"
-                     f"Modes=(bl_force: {bl_force}, bl_veto: {bl_veto}, inv_force: {inv_force}, inv_veto: {inv_veto})")
+                     f"Modes=(bl: {bl_mode}, inv: {inv_mode})")
 
         self.df_plot = pd.DataFrame(plot_data)
         self._update_plot()

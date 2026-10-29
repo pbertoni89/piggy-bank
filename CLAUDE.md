@@ -9,17 +9,18 @@ Everything runs through `driver.sh`, which activates `.venv/` first:
 ```bash
 ./driver.sh -b   # compile ui/*.ui -> ui/*_rc.py with pyside6-uic
 ./driver.sh -r   # build the UI, then run the GUI (PYTHONPATH=. python piggy_bank/main_window.py)
-./driver.sh -i   # headless pipeline: load data, print the DataFrames (piggy_bank/driver.py)
+./driver.sh -i   # headless (deprecated): load data, print a summary per view in DEFAULT_VIEWS (piggy_bank/driver.py)
 ./driver.sh -d   # open Qt Designer
 ./driver.sh -t   # build the UI, then run pytest (extra args are passed through, e.g. -t -k blacklist)
 ```
 
 - `driver.sh` only reads the first flag, so you can't combine them.
 - Run Python from the repo root with `PYTHONPATH=.`. Imports are absolute (`from piggy_bank.etica import *`).
-- `piggy_bank/etica.ipynb` runs the same steps as `driver.py`, plus matplotlib/plotly plots.
+- `driver.py` and `piggy_bank/etica.ipynb` are deprecated, so change them freely, but keep them on the GUI model. They work on *views*: `(bl, inv)` mode pairs (`etica.DEFAULT_VIEWS`), built with `build_view()`, which filters and then recomputes that view's own running total and OLS. The plot helpers take `{label: df}` dicts.
 - Tests: `./driver.sh -t` or `.venv/bin/python -m pytest` (configured in `pyproject.toml`, `pythonpath = ["."]`).
   - `tests/test_load_data.py` covers the ingestion pipeline. Its `data_dir` fixture monkeypatches `etica.DATA_DIR` to a tmp dir, and `write_csv` writes statement/blacklist CSVs. Never point tests at the real `data/`.
-  - `tests/test_compute.py` covers the pure computations.
+  - `tests/test_compute.py` covers the pure computations and the mode/view API.
+  - `tests/test_headless.py` runs `driver.py` and every notebook code cell (magics dropped) on synthetic data, with `plt.show`/`go.Figure.show` stubbed.
   - `tests/test_widgets.py` uses pytest-qt, runs offscreen, and is skipped if `*_rc.py` haven't been built.
   - `tests/test_sigint.py` runs Qt in a subprocess, because `app.exit()` ends every event loop and would break pytest-qt's shared `QApplication`. Never call `qapp.exec()`/`exit()` in-process in tests.
   - `tests/test_main_window.py` builds the real `MainWindow` offscreen (QtWebEngine works headless, about 2 s per window). It drives the File menu actions with `FakeDialogs`, which replaces `main_window.QFileDialog`/`QMessageBox`. `.xls` reading is faked by monkeypatching `etica.pd.read_excel`, since there's no xls writer installed.
@@ -50,12 +51,13 @@ The data lives in `data/etica/` (`DATA_DIR` in `etica.py`). It is real personal 
    - **Exact row**: `Data contabile` plus `Dare` and/or `Avere`. It must match exactly one row; more than one raises `ValueError`, zero logs an error.
    - **Wildcard row**: `Dare` and `Avere` empty, `Descrizione` set. Case-sensitive substring match on description.
    - A row with no `Dare`, `Avere` or `Descrizione` (even if it has a date) counts as empty and is dropped.
+   - **Open question (undecided, don't act on it unprompted):** the wildcard row type is ambiguous. `Descrizione` is only a note in exact rows but the match pattern in wildcard rows, and the user marks wildcard rows with `*` in the date column, which the code ignores (any date or blank behaves the same). The user's wildcard rows (`TIME DEPOSIT`) overlap with `INV_REGEX` and may be removed. Options proposed: (a) drop wildcard support from `load_data()`, so every row is an exact date+amount match and `Descrizione` is always a note; (b) keep wildcards but require `*` in the date column and reject other amount-less rows. Removing the wildcard rows from the data breaks nothing.
 6. Rewrites noisy `Descrizione` fragments (the hardcoded `stripped_parts` list, e.g. → `<BONIF>`).
 7. Sets `Investment` = 0/1 from `INV_REGEX` on the *cleaned* description. Like `Blacklisted`, it is computed on every load and isn't in `merged.csv` (which is written at step 4).
 
 Column constants (use these, not string literals): `COL_DATA`='Data contabile', `COL_MINUS`='Dare' (outflows, negative), `COL_PLUS`='Avere' (inflows), `COL_DESCR`='Descrizione', `COL_BL`='Blacklisted', `COL_INV`='Investment', `COL_RUN_TOT`='Running Total', `COL_IMP`='Importo', `COL_OLS`='OLS'. Amount = `Avere.fillna(0) + Dare.fillna(0)`.
 
-"Blacklisted" means excluded from the "net" view, e.g. transfers in and out of investments. Investments are detected by `etica.INV_REGEX` (case-sensitive substring) only inside `load_data()`. Everything else (`filter_investments`, the ledger table, the INV radios) reads the `Investment` column, so don't match the pattern anywhere else. "bl"/"inv" naming is consistent throughout: `COL_BL`/`COL_INV`, `__idx_bl`/`__idx_inv`, `brg_bl`/`brg_inv`.
+`Blacklisted` and `Investment` are two independent 0/1 flags at the same logical level: in the GUI each is just a filter (All/Force/Veto radios). The filter rule lives in `etica`: modes `MODE_ALL`/`MODE_FORCE`/`MODE_VETO`, `mode_keeps(mode, flag)` (per row, used by the GUI) and `apply_modes(df, bl=, inv=)` (per DataFrame, used by the headless side). Never special-case one flag over the other. Investments are detected by `etica.INV_REGEX` (case-insensitive substring) only inside `load_data()`. Everything else (`filter_investments`, the ledger table, the INV radios) reads the `Investment` column, so don't match the pattern anywhere else. "bl"/"inv" naming is consistent throughout: `COL_BL`/`COL_INV`, `__idx_bl`/`__idx_inv`, `brg_bl`/`brg_inv`.
 
 ## Architecture
 
@@ -68,7 +70,7 @@ Column constants (use these, not string literals): `COL_DATA`='Data contabile', 
   - The weekday histogram deliberately raises if any transaction falls on a Saturday (a sanity check).
 - `filter_tools.py`: `FilterTools` widget (direction checkboxes, `QRangeSlider` amount ranges, description text, date range, two independent radio groups, reset).
   - `brg_bl` (`qrb_bl_all/force/veto`) and `brg_inv` (`qrb_inv_all/force/veto`): **All** = no constraint, **Force** = keep only matching rows, **Veto** = drop matching rows. "Matching" means `Blacklisted == 1` for BL and `Investment == 1` for INV. Both groups apply together (AND).
-  - The groups are wired through the `QButtonGroup`s that uic generates (`brg.buttonToggled` → `_on_brg_buttonToggled`, `checkedButton()` for defaults). Group membership lives only in the `.ui`, so don't keep Python lists of radios. Each group's default is whichever radio has `checked=true` in the `.ui` (the **All** ones). It's captured at init in `__brg_defaults` and restored by reset. A group with no checked radio raises at startup. It emits `filters_updated`, debounced with a 1 s single-shot `QTimer` for sliders and text.
+  - The groups are wired through the `QButtonGroup`s that uic generates (`brg.buttonToggled` → `_on_brg_buttonToggled`, `checkedButton()` for defaults). Group membership lives only in the `.ui`, so don't keep Python lists of radios. Each group's default is whichever radio has `checked=true` in the `.ui` (the **All** ones). It's captured at init in `__brg_defaults` and restored by reset. A group with no checked radio raises at startup. Each radio's mode is its objectName suffix (`qrb_bl_force` → `force`), read via `FilterTools.bl_mode()`/`inv_mode()`, so new radios must end in `_all`/`_force`/`_veto` (also checked at startup). It emits `filters_updated`, debounced with a 1 s single-shot `QTimer` for sliders and text.
 - `aggr_stats.py`: `AggrStats` box (All/Out/In summary stats over the visible values). With `coloured=True` (only `stats_all`), sum, median and average are green when >= 0 and red when negative, using the plots' `#2ca02c`/`#d62728`.
 - `qw_misc.py`: `install_sigint_handler(app)` (Ctrl+C → `app.exit(130)`; a 200 ms no-op `QTimer` lets Python run signal handlers while Qt idles; `main()` installs it right before `app.exec()` and catches `KeyboardInterrupt` during startup). `WebEnginePlotManager` (renders a `go.Figure` to HTML in a `QWebEngineView`, dark theme `#111111`), `NumericTableWidgetItem` (numeric sort), and thin wrappers `Ledger`, `PlotsLines`, `PlotsStats` that load their `.ui` files.
 - The main window has tabs whose layouts (`ql_ledger`, `ql_plots_lines`, `ql_plots_stats`, `qvl_aggr_stats`) get the sub-widgets inserted at runtime.

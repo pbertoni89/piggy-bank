@@ -100,13 +100,15 @@ def test_investments_are_flagged(write_csv):
         ('2025-01-01', -100.0, None, 'SOTTOSCRIZIONE FONDI'),
         ('2025-01-02', -5.0, None, 'PIZZA'),
         ('2025-01-03', None, 3.0, 'CEDOLE BTP'),
-        ('2025-01-04', None, 1.0, 'cedole lowercase'),  # case sensitive: not an investment
-        ('2025-01-05', -50.0, None, 'GIROCONTO DEPOSITO'),  # substring: DEPOSIT
+        ('2025-01-04', None, 1.0, 'Cedole semestrali'),  # case insensitive
+        ('2025-01-05', -50.0, None, 'giroconto deposito'),  # case insensitive substring: DEPOSIT
+        ('2025-01-06', -1000.0, None, 'SOTTOSCRIZIONE TIME DEPOSIT'),
+        ('2025-01-07', None, 1000.0, 'RIMBORSO PARTITA TIME DEPOSIT'),
     ])
 
     df = load_data()
 
-    assert list(df[COL_INV]) == [1, 0, 1, 0, 1]
+    assert list(df[COL_INV]) == [1, 0, 1, 1, 1, 1, 1]
 
 
 def test_investment_and_blacklist_are_independent(write_csv):
