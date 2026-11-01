@@ -1,5 +1,6 @@
 #!/bin/bash
 dirRoot="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+dirVenv=${dirRoot}/.venv
 
 # Container engine and image name, overridable from the environment (e.g. PIGGYBANK_ENGINE=podman)
 dockerEngine="${PIGGYBANK_ENGINE:-docker}"
@@ -11,7 +12,7 @@ hfCacheVolume="${PIGGYBANK_HF_VOLUME:-piggy-bank-hf-cache}"
 hfCacheMount="${hfCacheVolume}:/home/piggy/.cache/huggingface"
 
 
-function piggybank_docker_build_image() {
+function pb_docker_build_image() {
   "${dockerEngine}" build -t "${dockerImage}" \
     --build-arg UID="$(id -u)" --build-arg GID="$(id -g)" \
     "${dirRoot}"
@@ -21,7 +22,7 @@ function piggybank_docker_build_image() {
 # Prints 'dark', 'light' or nothing: the host desktop's colour scheme, from $PIGGYBANK_COLOR_SCHEME if
 # set, else from the freedesktop settings portal (KDE, GNOME, ...). Qt in the container can't read it:
 # that would need the session D-Bus mounted, which would expose the whole desktop to the container.
-function piggybank_host_color_scheme() {
+function pb_host_color_scheme() {
   if [[ -n "${PIGGYBANK_COLOR_SCHEME}" ]]; then
     echo "${PIGGYBANK_COLOR_SCHEME}"
     return
@@ -38,7 +39,7 @@ function piggybank_host_color_scheme() {
 }
 
 
-function piggybank_docker_run_gui() {
+function pb_docker_run_gui() {
   [[ -n "${DISPLAY}" ]] || { echo "DISPLAY is not set: no X server to show the GUI on"; return 4; }
   # Let the container's user (same UID as ours) talk to the X server
   if command -v xhost > /dev/null; then
@@ -60,7 +61,7 @@ function piggybank_docker_run_gui() {
     done
   fi
   local colorScheme
-  colorScheme="$(piggybank_host_color_scheme)"
+  colorScheme="$(pb_host_color_scheme)"
   echo "Colour scheme: ${colorScheme:-unknown, Qt default (light)}"
   # :z relabels the bind mounts for SELinux (Fedora); --shm-size because Chromium outgrows the 64 MB default
   "${dockerEngine}" run --rm -it \
@@ -74,7 +75,7 @@ function piggybank_docker_run_gui() {
 }
 
 
-function piggybank_docker_jupyter() {
+function pb_docker_jupyter() {
   mkdir -p "${dirRoot}/data/etica"
   # piggy_bank/ is mounted (not baked) so notebook edits land in the repo and etica.py changes are live.
   # The port is bound to localhost only: the notebooks see real bank data.
@@ -88,25 +89,50 @@ function piggybank_docker_jupyter() {
 }
 
 
-# Long options (Docker): handled before the venv is sourced, since they don't need it
-case "${1}" in
-  --docker-build-image)
-    shift; piggybank_docker_build_image "${@}"; exit ${?} ;;
-  --docker-run-gui)
-    shift; piggybank_docker_run_gui "${@}"; exit ${?} ;;
-  --docker-jupyter)
-    shift; piggybank_docker_jupyter "${@}"; exit ${?} ;;
-esac
-
-source "${dirRoot}/.venv/bin/activate"
+function pb_activate_venv() {
+  source "${dirVenv}/bin/activate"
+}
 
 
-function piggybank_run_designer() {
+# Creates ${dirVenv} if it isn't a venv yet, then installs the project (editable, as DATA_DIR requires)
+# with all the extras in pyproject.toml. On an existing venv, pip only installs what's missing.
+# torch is CPU-only, as in the Dockerfile: PyPI's torch is the CUDA build (GBs of nvidia-* wheels), and
+# recent CUDA builds don't even support older GPUs (e.g. Quadro P1000, sm_61: "no kernel image is
+# available"). A CUDA torch found in the venv is replaced, and the installed +cpu version is pinned in
+# ${dirVenv}/pip-constraints.txt, so a dependency that wants another torch fails instead of pulling CUDA.
+function pb_update_venv() {
+  if [[ -f "${dirVenv}/pyvenv.cfg" && -x "${dirVenv}/bin/python" ]]; then
+    echo "Updating the venv in ${dirVenv}"
+  else
+    echo "${dirVenv} is not a Python venv: creating it"
+    python3 -m venv "${dirVenv}" || return 1
+  fi
+  local extras
+  extras="$("${dirVenv}/bin/python" -c "import tomllib; f = open('${dirRoot}/pyproject.toml', 'rb'); \
+print(','.join(tomllib.load(f)['project'].get('optional-dependencies', {})))")" || return 2
+  local pip=("${dirVenv}/bin/python" -m pip)
+  local constraints="${dirVenv}/pip-constraints.txt"
+  "${pip[@]}" install --upgrade pip || return 3
+  local cudaWheels
+  cudaWheels="$("${pip[@]}" freeze | grep -E '^(torch==.*\+cu|nvidia-|cuda-|triton==)' | cut -d= -f1)"
+  if [[ -n "${cudaWheels}" ]]; then
+    echo "Removing the CUDA build of torch and its wheels:" ${cudaWheels}
+    # shellcheck disable=SC2086
+    "${pip[@]}" uninstall -y ${cudaWheels} || return 5
+    rm -f "${constraints}"
+  fi
+  "${pip[@]}" install torch --index-url https://download.pytorch.org/whl/cpu || return 6
+  "${pip[@]}" freeze | grep -i '^torch==' > "${constraints}"
+  "${pip[@]}" install -c "${constraints}" -e "${dirRoot}${extras:+[${extras}]}" || return 4
+}
+
+
+function pb_run_designer() {
   nohup pyside6-designer "${dirRoot}"/piggy_bank/ui/*.ui &
 }
 
 
-function piggybank_build_ui() {
+function pb_build_ui() {
   pushd "${dirRoot}"/piggy_bank/ui > /dev/null || return 1
   local ui_file
   local rc_file
@@ -126,8 +152,7 @@ function piggybank_build_ui() {
 }
 
 
-function piggybank_build_run_ui() {
-  piggybank_build_ui
+function pb_run_gui() {
   pushd "${dirRoot}" > /dev/null || return 1
 
   python -c "import superqt; print(f'superqt version {superqt.__version__} is installed')" || {
@@ -142,12 +167,23 @@ function piggybank_build_run_ui() {
   { set +x; } 2>/dev/null
   echo "UI exited with code ${rc}."
   popd > /dev/null || return 1
+  return ${rc}
 }
 
 
-function piggybank_run_tests() {
+function pb_deprecated_headless() {
+  pushd "${dirRoot}" > /dev/null || return 1
+  PYTHONPATH=. python piggy_bank/driver.py
+  local rc=${?}
+  echo "Driver exited with code ${rc}."
+  popd > /dev/null || return 1
+  return ${rc}
+}
+
+
+function pb_run_tests() {
   # Build first, otherwise the widget tests are skipped
-  piggybank_build_ui || return ${?}
+  pb_build_ui || return ${?}
   pushd "${dirRoot}" > /dev/null || return 1
   python -m pytest "${@}"
   local rc=${?}
@@ -156,48 +192,54 @@ function piggybank_run_tests() {
 }
 
 
-function piggybank_usage() {
-  echo "Usage: $0 [-d] [-r] [-b] [-h] [-i] [-t [pytest args...]] [--docker-build-image|--docker-run-gui|--docker-jupyter]"
-  echo "  -d: Run Qt Designer"
-  echo "  -r: Build and run the UI"
-  echo "  -i: Run the headless driver"
-  echo "  -b: Build the UI"
-  echo "  -t: Build the UI and run the test suite (extra args go to pytest)"
-  echo "  -h: Show this help message"
+function pb_usage() {
+  echo "Usage: $0 OPTION [args...]"
+  echo "Local (uses ${dirVenv}):"
+  echo "  --update-venv:         Create the venv if needed, install pyproject.toml's packages (all extras)"
+  echo "  --run-gui:             Run the GUI (build it first with --build-gui)"
+  echo "  --build-gui:           Compile piggy_bank/ui/*.ui into *_rc.py"
+  echo "  --run-designer:        Open the .ui files in Qt Designer"
+  echo "  --build-run-tests:     Build the UI and run the test suite (extra args go to pytest)"
+  echo "  --deprecated-headless: Run the headless driver"
   echo "Docker (no local .venv needed; set PIGGYBANK_ENGINE=podman to use podman):"
-  echo "  --docker-build-image: Build the '${dockerImage}' image"
-  echo "  --docker-run-gui:     Run the GUI in a container, on the host's X display"
-  echo "  --docker-jupyter:     Run JupyterLab on piggy_bank/ at http://127.0.0.1:${jupyterPort}"
+  echo "  --docker-build-image:  Build the '${dockerImage}' image"
+  echo "  --docker-run-gui:      Run the GUI in a container, on the host's X display"
+  echo "  --docker-jupyter:      Run JupyterLab on piggy_bank/ at http://127.0.0.1:${jupyterPort}"
+  echo "  -h, --help:            Show this help message"
   exit "${1:-0}"
 }
 
 
-getopts "drbhit" opt
-shift $((OPTIND - 1))
-case ${opt} in
-  d)
-    piggybank_run_designer
-    ;;
-  r)
-    piggybank_build_run_ui
-    ;;
-  i)
-    pushd "${dirRoot}" > /dev/null || return 1
-    PYTHONPATH=. python piggy_bank/driver.py
-    echo "Driver exited with code ${?}."
-    popd > /dev/null || return 1
-    ;;
-  b)
-    piggybank_build_ui
-    ;;
-  t)
-    piggybank_run_tests "${@}"
-    exit ${?}
-    ;;
-  h)
-    piggybank_usage 0
-    ;;
-  *)
-    piggybank_usage 3
-    ;;
-esac
+if [[ ${BASH_SOURCE[0]} == "${0}" ]]; then
+  # Only the first option is read; the rest are passed to the chosen command.
+  # Docker options don't source the venv, so they work on a host without one.
+  option="${1}"
+  shift
+  case "${option}" in
+    --update-venv)
+      pb_update_venv ;;
+    --run-gui)
+      pb_activate_venv; pb_run_gui ;;
+    --build-gui)
+      pb_activate_venv; pb_build_ui ;;
+    --run-designer)
+      pb_activate_venv; pb_run_designer ;;
+    --build-run-tests)
+      pb_activate_venv; pb_run_tests "${@}" ;;
+    --deprecated-headless)
+      pb_activate_venv; pb_deprecated_headless ;;
+    --docker-build-image)
+      pb_docker_build_image "${@}" ;;
+    --docker-run-gui)
+      pb_docker_run_gui "${@}" ;;
+    --docker-jupyter)
+      pb_docker_jupyter "${@}" ;;
+    -h|--help)
+      pb_usage 0 ;;
+    *)
+      pb_usage 3 ;;
+  esac
+  exit ${?}
+else
+  echo "Sourced ${BASH_SOURCE[0]}: type pb_ and tabulate to discover new functions"
+fi

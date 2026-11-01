@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip('piggy_bank.ui.ledger_rc', reason='UI not built, run ./driver.sh -b')
+pytest.importorskip('piggy_bank.ui.ledger_rc', reason='UI not built, run ./driver.sh --build-gui')
 
 ROOT = Path(__file__).parent.parent
 

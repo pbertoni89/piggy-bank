@@ -4,14 +4,16 @@ Piggy Bank is a personal finance analyser for Banca Etica ("Estratto conto Itali
 
 ## Commands
 
-Everything runs through `driver.sh`, which activates `.venv/` first:
+Everything runs through `driver.sh` (the local options activate `.venv/` first):
 
 ```bash
-./driver.sh -b   # compile ui/*.ui -> ui/*_rc.py with pyside6-uic
-./driver.sh -r   # build the UI, then run the GUI (PYTHONPATH=. python piggy_bank/main_window.py)
-./driver.sh -i   # headless (deprecated): load data, print a summary per view in DEFAULT_VIEWS (piggy_bank/driver.py)
-./driver.sh -d   # open Qt Designer
-./driver.sh -t   # build the UI, then run pytest (extra args are passed through, e.g. -t -k blacklist)
+./driver.sh --update-venv           # create .venv if needed, install pyproject.toml with all extras (CPU-only torch)
+./driver.sh --build-gui             # compile ui/*.ui -> ui/*_rc.py with pyside6-uic
+./driver.sh --run-gui               # run the GUI, without building (PYTHONPATH=. python piggy_bank/main_window.py)
+./driver.sh --deprecated-headless   # load data, print a summary per view in DEFAULT_VIEWS (piggy_bank/driver.py)
+./driver.sh --run-designer          # open Qt Designer
+./driver.sh --build-run-tests       # build the UI, then run pytest (extra args are passed through, e.g. --build-run-tests -k blacklist)
+./driver.sh -h                      # help
 ```
 
 ```bash
@@ -21,22 +23,26 @@ Everything runs through `driver.sh`, which activates `.venv/` first:
 docker run --rm piggy-bank test    # test suite, offscreen, inside the image
 ```
 
-- `driver.sh` only reads the first flag, so you can't combine them. The `--docker-*` long options are parsed before `.venv` is sourced, so they work on a host with no venv at all.
+- `driver.sh` dispatches all options in a single `case` at the bottom. It only reads the first option, so you can't combine them; the remaining args go to that command. Only the local options source `.venv` (`pb_activate_venv`), so the `--docker-*` ones (and `--update-venv`, which may have to create it) work on a host with no venv at all.
+- `driver.sh` can also be sourced (`source driver.sh`): that defines the `pb_*` functions without running anything, so you can call them one by one.
 - Run Python from the repo root with `PYTHONPATH=.`. Imports are absolute (`from piggy_bank.etica import *`).
 - `driver.py` and `piggy_bank/etica.ipynb` are deprecated, so change them freely, but keep them on the GUI model. They work on *views*: `(bl, inv)` mode pairs (`etica.DEFAULT_VIEWS`), built with `build_view()`, which filters and then recomputes that view's own running total and OLS. The plot helpers take `{label: df}` dicts.
-- Tests: `./driver.sh -t` or `.venv/bin/python -m pytest` (configured in `pyproject.toml`, `pythonpath = ["."]`).
+- Tests: `./driver.sh --build-run-tests` or `.venv/bin/python -m pytest` (configured in `pyproject.toml`, `pythonpath = ["."]`).
   - `tests/test_load_data.py` covers the ingestion pipeline. Its `data_dir` fixture monkeypatches `etica.DATA_DIR` to a tmp dir, and `write_csv` writes statement/blacklist CSVs. Never point tests at the real `data/`.
   - `tests/test_compute.py` covers the pure computations and the mode/view API.
-  - `tests/test_headless.py` runs `driver.py` and every notebook code cell (magics dropped) on synthetic data, with `plt.show`/`go.Figure.show` stubbed.
+  - `tests/test_headless.py` runs `driver.py` and every `etica.ipynb` code cell (magics dropped) on synthetic data, with `plt.show`/`go.Figure.show` stubbed.
   - `tests/test_widgets.py` uses pytest-qt, runs offscreen, and is skipped if `*_rc.py` haven't been built.
   - `tests/test_sigint.py` runs Qt in a subprocess, because `app.exit()` ends every event loop and would break pytest-qt's shared `QApplication`. Never call `qapp.exec()`/`exit()` in-process in tests.
   - `tests/test_main_window.py` builds the real `MainWindow` offscreen (QtWebEngine works headless, about 2 s per window). It drives the File menu actions with `FakeDialogs`, which replaces `main_window.QFileDialog`/`QMessageBox`. `.xls` reading is faked by monkeypatching `etica.pd.read_excel`, since there's no xls writer installed.
-- Install: `pip install -e '.[dev]'`. It must be editable, because `DATA_DIR` is resolved relative to the source tree.
+- Install: `./driver.sh --update-venv` (`pb_update_venv`). It creates `.venv` with `python3 -m venv` if it isn't a venv yet, then runs `pip install -e '.[<every extra in pyproject.toml>]'` (extras read with `tomllib`, so Python >= 3.11). On an existing venv it only installs what's missing. The install must be editable, because `DATA_DIR` is resolved relative to the source tree.
+  - **torch is CPU-only on the host too**, as in the image. It's installed from `https://download.pytorch.org/whl/cpu` and pinned in `.venv/pip-constraints.txt`. A CUDA torch found in the venv (plus its `nvidia-*`, `cuda-*`, `triton` wheels) is uninstalled first. Reason: PyPI's CUDA build is GBs, and it has no kernels for the user's Quadro P1000 (sm_61), so encoding failed with `CUDA error: no kernel image is available for execution on the device`.
 
 ## Dependencies gotchas
 
 - **superqt** provides `QRangeSlider`, which `filter_tools.ui` promotes to (header `superqt`).
 - Plots need `PySide6.QtWebEngineWidgets`. Without it, `WebEnginePlotManager` shows a placeholder label instead of plots.
+- **ipywidgets** (`notebook` extra) is needed for `tqdm.auto` progress bars in Jupyter; without it, `TqdmWarning: IProgress not found`.
+- **Hugging Face Hub warning:** `SentenceTransformer('name')` contacts the Hub on every load, even with the model cached, and the server answers `You are sending unauthenticated requests to the HF Hub` (an `X-HF-Warning` header). Load with `local_files_only=True` first and fall back to a normal load (download) on `OSError`; or set `HF_TOKEN`.
 - Plotly HTML loads `plotly.js` from a CDN (`include_plotlyjs='cdn'`), so plots need network access.
 
 ## Docker
@@ -66,7 +72,7 @@ Files: `Dockerfile`, `.dockerignore`, and the `--docker-*` functions in `driver.
 - **Software rendering by default** (`QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu`, `LIBGL_ALWAYS_SOFTWARE=1`). Without the host GPU, Mesa logs `Failed to query drm device` / `failed to load driver: crocus`, and Chromium's GPU init then **hangs the first `QWebEngineView` forever** (in `WebEnginePlotManager.__init__`): no window, 0% CPU, no QtWebEngineProcess. Found on a Haswell laptop (Fedora 44, KDE Wayland). `PIGGYBANK_GPU=1 ./driver.sh --docker-run-gui` passes `/dev/dri` plus the host's `video`/`render` groups and re-enables the GPU; it also reached the event loop on that laptop. The image only has Mesa, so GPU mode won't work with NVIDIA's proprietary driver. Logs about Vulkan instances and `/run/dbus/system_bus_socket` are harmless.
 - **`/home/piggy/.cache` must be created owned by `piggy`** (the Dockerfile `install -d` lists it explicitly). Otherwise Docker or `install` creates it as root when it makes the model-cache mount point, and matplotlib warns `mkdir -p failed for path /home/piggy/.cache/matplotlib`.
 - **Dark theme:** Qt in the container can't see the desktop's theme and defaults to light.
-  - `driver.sh` (`piggybank_host_color_scheme`) reads it on the host from the freedesktop settings portal (`gdbus ... org.freedesktop.appearance color-scheme`: 1 = dark, 2 = light). It passes the result as `PIGGYBANK_COLOR_SCHEME`, which you can also set by hand to override detection.
+  - `driver.sh` (`pb_host_color_scheme`) reads it on the host from the freedesktop settings portal (`gdbus ... org.freedesktop.appearance color-scheme`: 1 = dark, 2 = light). It passes the result as `PIGGYBANK_COLOR_SCHEME`, which you can also set by hand to override detection.
   - `main()` calls `qw_misc.apply_color_scheme(app)`. Unset means no change, so on a native host Qt follows the desktop as before. With `dark`, it first tries `styleHints().setColorScheme()`; Qt's generic theme (the one used in the container) ignores that, so it falls back to Fusion + `dark_palette()`.
   - Rejected alternative: mounting the session D-Bus with `QT_QPA_PLATFORMTHEME=xdgdesktopportal`. It works and follows the desktop live, but it exposes the whole desktop session to the container (`systemd-run --user`, the secrets wallet, ...).
   - The theme is read once, at launch.
@@ -90,9 +96,9 @@ Everything is a one-off, interactive container, and compose can't do the host-si
 
 ## Generated files: never edit `*_rc.py`
 
-`piggy_bank/ui/*_rc.py` are pyside6-uic output (gitignored). To change a layout, edit the `.ui` file in Designer (or the XML), then run `./driver.sh -b`. Each `X.ui` produces `X_rc.py` with class `Ui_<RootWidgetName>`. Python widgets use multiple inheritance (`class Foo(QWidget, Ui_Foo)` + `self.setupUi(self)`).
+`piggy_bank/ui/*_rc.py` are pyside6-uic output (gitignored). To change a layout, edit the `.ui` file in Designer (or the XML), then run `./driver.sh --build-gui`. Each `X.ui` produces `X_rc.py` with class `Ui_<RootWidgetName>`. Python widgets use multiple inheritance (`class Foo(QWidget, Ui_Foo)` + `self.setupUi(self)`).
 
-The user often has the `.ui` files open in Designer (`./driver.sh -d` opens all of them). Saving from Designer overwrites any edit made on disk in the meantime: the `calendarPopup` on `qde_start`/`qde_end` was lost this way once. Before editing a `.ui` file, ask the user to close it in Designer, or tell them to reopen it afterwards. Prefer settings that tests check (e.g. `test_filter_tools_dates_have_calendar_popup`), so a stale save is caught by `./driver.sh -t`.
+The user often has the `.ui` files open in Designer (`./driver.sh --run-designer` opens all of them). Saving from Designer overwrites any edit made on disk in the meantime: the `calendarPopup` on `qde_start`/`qde_end` was lost this way once. Before editing a `.ui` file, ask the user to close it in Designer, or tell them to reopen it afterwards. Prefer settings that tests check (e.g. `test_filter_tools_dates_have_calendar_popup`), so a stale save is caught by `./driver.sh --build-run-tests`.
 
 ## Data (sensitive, gitignored)
 

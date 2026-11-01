@@ -43,6 +43,7 @@ homepage = "https://github.com/pbertoni89/piggy-bank"
 notebook = [
     "jupyterlab",
     "ipython",
+    "ipywidgets",  # Jupyter progress bars (tqdm.auto), e.g. sentence_transformers model loading
 ]
 dev = [
     "pytest",

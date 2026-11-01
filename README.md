@@ -19,15 +19,14 @@ A desktop app to explore your **Banca Etica** current account. Feed it the yearl
 
 ## Quick start
 
-You need Python ≥ 3.10 and `bash` (the helper script is a bash script; developed on Linux).
+You need Python ≥ 3.10 (≥ 3.11 for `./driver.sh --update-venv`) and `bash` (the helper script is a bash script; developed on Linux).
 
 ```bash
 git clone https://github.com/pbertoni89/piggy-bank.git
 cd piggy-bank
-python -m venv .venv
-source .venv/bin/activate
-pip install -e '.[dev]'        # editable install is required, see below
-./driver.sh -r                 # builds the UI and launches the app
+./driver.sh --update-venv      # creates .venv and installs everything (editable, see below)
+./driver.sh --build-gui        # compiles the UI
+./driver.sh --run-gui          # launches the app
 ```
 
 Then load your data with **File → Import data** and pick a `.xls` export. Alternatively, copy the exports into `data/etica/` before launching.
@@ -98,15 +97,16 @@ Data contabile,Dare,Avere,Descrizione
 
 ## Development
 
-`driver.sh` wraps the common tasks (it activates `.venv` itself):
+`driver.sh` wraps the common tasks (it activates `.venv` itself). `./driver.sh -h` lists them, and `source driver.sh` defines the `pb_*` functions so you can call them one by one.
 
 ```bash
-./driver.sh -r                  # build the UI and launch the app
-./driver.sh -t                  # build the UI and run the test suite
-./driver.sh -t -k blacklist -v  # extra arguments are passed to pytest
-./driver.sh -b                  # only compile piggy_bank/ui/*.ui into *_rc.py
-./driver.sh -d                  # open the .ui files in Qt Designer
-./driver.sh -i                  # headless summary (deprecated, see below)
+./driver.sh --update-venv                      # create/update .venv from pyproject.toml (all extras)
+./driver.sh --build-gui                        # compile piggy_bank/ui/*.ui into *_rc.py
+./driver.sh --run-gui                          # launch the app (doesn't build the UI)
+./driver.sh --build-run-tests                  # build the UI and run the test suite
+./driver.sh --build-run-tests -k blacklist -v  # extra arguments are passed to pytest
+./driver.sh --run-designer                     # open the .ui files in Qt Designer
+./driver.sh --deprecated-headless              # headless summary (deprecated, see below)
 ```
 
 Once installed, the app can also be launched as `piggy-bank`.
@@ -130,7 +130,7 @@ piggy_bank/
 tests/
 ```
 
-**Headless script and notebook.** These are deprecated but kept working. `./driver.sh -i` and `piggy_bank/etica.ipynb` use the same flags and All/Force/Veto modes as the app. They compare a few "views" (`etica.DEFAULT_VIEWS`), e.g. *no blacklisted, no investments* vs *investments only*. For the notebook, `pip install -e '.[notebook]'` and open it in JupyterLab.
+**Headless script and notebook.** These are deprecated but kept working. `./driver.sh --deprecated-headless` and `piggy_bank/etica.ipynb` use the same flags and All/Force/Veto modes as the app. They compare a few "views" (`etica.DEFAULT_VIEWS`), e.g. *no blacklisted, no investments* vs *investments only*. For the notebook, open it in JupyterLab (`--update-venv` installs the `notebook` extra too, or use `./driver.sh --docker-jupyter`).
 
 ## License
 
