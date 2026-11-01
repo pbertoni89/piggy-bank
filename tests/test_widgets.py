@@ -8,7 +8,7 @@ pytest.importorskip('piggy_bank.ui.filter_tools_rc', reason='UI not built, run .
 
 from piggy_bank.aggr_stats import AggrStats  # noqa: E402
 from piggy_bank.filter_tools import FilterTools  # noqa: E402
-from piggy_bank.qw_misc import NumericTableWidgetItem  # noqa: E402
+from piggy_bank.qw_misc import NumericTableWidgetItem, apply_color_scheme, ENV_COLOR_SCHEME  # noqa: E402
 
 
 @pytest.fixture
@@ -178,3 +178,38 @@ def test_filter_tools_text_is_debounced(qtbot, df):
         ft.qle_description.setText('a')
     with qtbot.waitSignal(ft.filters_updated, timeout=2000):
         pass
+
+
+@pytest.fixture
+def restore_app_look(qapp):
+    """apply_color_scheme() changes the shared QApplication: put its style, palette and scheme back."""
+    from PySide6.QtCore import Qt
+    style, palette = qapp.style().name(), qapp.palette()
+    yield qapp
+    qapp.setStyle(style)
+    qapp.setPalette(palette)
+    qapp.styleHints().setColorScheme(Qt.ColorScheme.Unknown)
+
+
+@pytest.mark.parametrize('value', ['', None])
+def test_color_scheme_unset_changes_nothing(restore_app_look, monkeypatch, value):
+    qapp = restore_app_look
+    monkeypatch.delenv(ENV_COLOR_SCHEME, raising=False)
+    before = qapp.palette().window().color().name()
+    assert apply_color_scheme(qapp, value) == ''
+    assert qapp.palette().window().color().name() == before
+
+
+def test_color_scheme_dark_from_env(restore_app_look, monkeypatch):
+    qapp = restore_app_look
+    monkeypatch.setenv(ENV_COLOR_SCHEME, ' Dark ')
+    applied = apply_color_scheme(qapp)
+    assert applied in ('dark', 'dark-fusion')
+    if applied == 'dark-fusion':
+        assert qapp.style().name() == 'fusion'
+    assert qapp.palette().window().color().lightness() < 100
+    assert qapp.palette().text().color().lightness() > 200
+
+
+def test_color_scheme_invalid_is_ignored(restore_app_look):
+    assert apply_color_scheme(restore_app_look, 'purple') == ''

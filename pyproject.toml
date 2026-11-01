@@ -17,6 +17,8 @@ dependencies = [
     # Numerical and data packages
     "numpy>=1.22.0",
     "pandas",
+    "scikit-learn",
+    "sentence_transformers",
 
     # Plotting
     "matplotlib",

@@ -1,0 +1,12 @@
+# Real bank data must never end up in an image layer: mount it at runtime
+data/
+.git/
+.venv/
+.idea/
+rust/
+misc/
+**/__pycache__/
+**/*_rc.py
+.pytest_cache/
+*.egg-info/
+nohup.out

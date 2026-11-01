@@ -14,7 +14,14 @@ Everything runs through `driver.sh`, which activates `.venv/` first:
 ./driver.sh -t   # build the UI, then run pytest (extra args are passed through, e.g. -t -k blacklist)
 ```
 
-- `driver.sh` only reads the first flag, so you can't combine them.
+```bash
+./driver.sh --docker-build-image   # build the `piggy-bank` image (see "Docker" below)
+./driver.sh --docker-run-gui       # GUI in a container, on the host X display
+./driver.sh --docker-jupyter       # JupyterLab on piggy_bank/, http://127.0.0.1:8888
+docker run --rm piggy-bank test    # test suite, offscreen, inside the image
+```
+
+- `driver.sh` only reads the first flag, so you can't combine them. The `--docker-*` long options are parsed before `.venv` is sourced, so they work on a host with no venv at all.
 - Run Python from the repo root with `PYTHONPATH=.`. Imports are absolute (`from piggy_bank.etica import *`).
 - `driver.py` and `piggy_bank/etica.ipynb` are deprecated, so change them freely, but keep them on the GUI model. They work on *views*: `(bl, inv)` mode pairs (`etica.DEFAULT_VIEWS`), built with `build_view()`, which filters and then recomputes that view's own running total and OLS. The plot helpers take `{label: df}` dicts.
 - Tests: `./driver.sh -t` or `.venv/bin/python -m pytest` (configured in `pyproject.toml`, `pythonpath = ["."]`).
@@ -31,6 +38,55 @@ Everything runs through `driver.sh`, which activates `.venv/` first:
 - **superqt** provides `QRangeSlider`, which `filter_tools.ui` promotes to (header `superqt`).
 - Plots need `PySide6.QtWebEngineWidgets`. Without it, `WebEnginePlotManager` shows a placeholder label instead of plots.
 - Plotly HTML loads `plotly.js` from a CDN (`include_plotlyjs='cdn'`), so plots need network access.
+
+## Docker
+
+Files: `Dockerfile`, `.dockerignore`, and the `--docker-*` functions in `driver.sh`. One image serves the GUI, JupyterLab and the tests. It was verified on Fedora 44 with Docker 29: all tests pass in the image, and JupyterLab serves the notebooks. GUI display on the host was not verified by Claude (that needs a real display).
+
+### Setting up a new host
+1. Install Docker (or Podman, then `export PIGGYBANK_ENGINE=podman`). A local `.venv` is only needed for the non-Docker flags.
+2. Copy `data/` by hand: it is gitignored real bank data, so a clone doesn't have it. `driver.sh` creates an empty `data/etica/` if it's missing.
+3. `./driver.sh --docker-build-image`. The first build is slow (Qt, QtWebEngine, PyTorch). After that, only the layers that changed are rebuilt.
+4. For the GUI you need an X server (XWayland is fine) and `xhost`, which `--docker-run-gui` calls itself. On Fedora that's `xorg-x11-server-utils`, on Debian/Ubuntu `x11-xserver-utils`.
+
+### Image design (decisions already made, keep them)
+- **Base `python:3.14-slim`** (Debian trixie), with the `dev` and `notebook` extras installed. Official Jupyter images were rejected: they're conda-based (a second Python setup alongside pip), you don't control the Python version, and they don't help with the GUI. The PySide6 wheels include Qt but not the system libraries it needs, so the `apt-get` list (Qt xcb plugin and QtWebEngine/Chromium libraries) is required. If the GUI fails with a missing `.so` or "could not load the Qt platform plugin xcb", add the library there.
+- **Layer order, heaviest and most stable first**, so a `pyproject.toml` edit rebuilds only the last layer:
+  - Layer A: `torch` from `https://download.pytorch.org/whl/cpu`.
+  - Layer B: `PySide6` and `superqt`.
+  - Layer C: everything listed in `pyproject.toml`, read with `tomllib`.
+
+  Every `pip install` uses a BuildKit cache mount (`/root/.cache/pip`), so a rebuilt layer reuses downloads. That's why `PIP_NO_CACHE_DIR` is not set. When you add a dependency, just add it to the toml. Only a new *huge* dependency deserves its own layer, before C.
+- **PyTorch is CPU-only, on purpose.** `sentence_transformers` pulls `torch`, and PyPI's Linux `torch` is the CUDA build, which adds GBs of `nvidia-*` wheels. Layer A writes the installed `torch==X+cpu` into `/etc/pip-constraints.txt` (`PIP_CONSTRAINT`). If a later dependency wants a different torch, the build fails instead of silently pulling CUDA. Fix that by bumping layer A, never by dropping the constraint.
+- **`scikit-learn` and `sentence_transformers` are core dependencies, not an extra.** The GUI will use them, so don't move them to an optional extra.
+- **Editable install at `/app`**, because `DATA_DIR` resolves relative to the source tree (`/app/data/etica`). `*_rc.py` are generated at build time; `.dockerignore` excludes stale host copies.
+- **Non-root user `piggy` with the host's UID/GID** (build args, which `--docker-build-image` passes). `load_data()` deletes `.xls` files and rewrites `merged.csv` in the mounted `data/`, and those files must stay owned by the host user.
+- **Entrypoint modes:** `gui` (the default, runs the `piggy-bank` script), `test` (pytest with `QT_QPA_PLATFORM=offscreen`, extra args passed through), `driver`, `jupyter` (JupyterLab with root `/app/piggy_bank`, port 8888). Anything else is run as a plain command.
+- **Environment:** `QTWEBENGINE_DISABLE_SANDBOX=1`, because Chromium's sandbox needs user namespaces that containers don't grant.
+- **Software rendering by default** (`QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu`, `LIBGL_ALWAYS_SOFTWARE=1`). Without the host GPU, Mesa logs `Failed to query drm device` / `failed to load driver: crocus`, and Chromium's GPU init then **hangs the first `QWebEngineView` forever** (in `WebEnginePlotManager.__init__`): no window, 0% CPU, no QtWebEngineProcess. Found on a Haswell laptop (Fedora 44, KDE Wayland). `PIGGYBANK_GPU=1 ./driver.sh --docker-run-gui` passes `/dev/dri` plus the host's `video`/`render` groups and re-enables the GPU; it also reached the event loop on that laptop. The image only has Mesa, so GPU mode won't work with NVIDIA's proprietary driver. Logs about Vulkan instances and `/run/dbus/system_bus_socket` are harmless.
+- **`/home/piggy/.cache` must be created owned by `piggy`** (the Dockerfile `install -d` lists it explicitly). Otherwise Docker or `install` creates it as root when it makes the model-cache mount point, and matplotlib warns `mkdir -p failed for path /home/piggy/.cache/matplotlib`.
+- **Dark theme:** Qt in the container can't see the desktop's theme and defaults to light.
+  - `driver.sh` (`piggybank_host_color_scheme`) reads it on the host from the freedesktop settings portal (`gdbus ... org.freedesktop.appearance color-scheme`: 1 = dark, 2 = light). It passes the result as `PIGGYBANK_COLOR_SCHEME`, which you can also set by hand to override detection.
+  - `main()` calls `qw_misc.apply_color_scheme(app)`. Unset means no change, so on a native host Qt follows the desktop as before. With `dark`, it first tries `styleHints().setColorScheme()`; Qt's generic theme (the one used in the container) ignores that, so it falls back to Fusion + `dark_palette()`.
+  - Rejected alternative: mounting the session D-Bus with `QT_QPA_PLATFORMTHEME=xdgdesktopportal`. It works and follows the desktop live, but it exposes the whole desktop session to the container (`systemd-run --user`, the secrets wallet, ...).
+  - The theme is read once, at launch.
+- **Debugging a hang:** run `python -c "import faulthandler,sys; faulthandler.dump_traceback_later(20, exit=True); sys.argv=['piggy-bank']; from piggy_bank.main_window import main; main()"` in the container (with the GUI's `docker run` options). A healthy start ends up waiting in `app.exec()` in `main()`.
+
+### Runtime (`driver.sh`)
+- **`data/` is never in the image** (`.dockerignore`). It is always bind-mounted at `/app/data` with `:z`, which relabels it for SELinux on Fedora.
+- **`--docker-run-gui`:** runs `xhost +SI:localuser:$USER`, mounts `/tmp/.X11-unix` and `DISPLAY`, and sets `--shm-size=512m`, because Chromium crashes on the default 64 MB `/dev/shm`.
+- **`--docker-jupyter`:**
+  - It also mounts `piggy_bank/`, so notebook edits land in the repo and `etica.py` changes are live without a rebuild. Don't mount single notebook files: Jupyter's atomic save renames files, which fails on a file bind mount.
+  - The port is published on `127.0.0.1` only, because the notebooks see real bank data. Log in with the `?token=` URL it prints.
+- **Hugging Face cache:** both modes mount the named volume `piggy-bank-hf-cache` at `/home/piggy/.cache/huggingface`, so sentence_transformers models are downloaded once and survive `--rm`.
+  - The Dockerfile pre-creates that directory owned by `piggy`, because a new named volume copies its ownership from the image.
+  - If the volume was ever created by an older image, it's owned by root and downloads fail: `docker volume rm piggy-bank-hf-cache`, rebuild.
+- **Overrides:** `PIGGYBANK_ENGINE`, `PIGGYBANK_IMAGE`, `PIGGYBANK_JUPYTER_PORT`, `PIGGYBANK_HF_VOLUME`, `PIGGYBANK_GPU=1` and `PIGGYBANK_COLOR_SCHEME=dark|light` (GUI only, see above).
+- **Plots need network:** they load `plotly.js` from a CDN. The default bridge network is fine.
+- **Wayland:** the image uses X11 (works through XWayland). Native Wayland would need the Wayland client libraries in the image and the Wayland socket mounted.
+
+### compose.yml: deliberately not used (for now)
+Everything is a one-off, interactive container, and compose can't do the host-side steps (`xhost`, checking `DISPLAY`, passing `id -u`/`id -g`). `driver.sh` would still be needed, and mounts, ports and volumes would be defined in two places. Revisit it if a long-running service appears, e.g. an always-on Jupyter server or a database. Then move the configuration into `compose.yml` and have `driver.sh` call `docker compose`.
 
 ## Generated files: never edit `*_rc.py`
 

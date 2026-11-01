@@ -550,6 +550,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 def main():
     init_logging(True)
     app = QApplication(sys.argv)
+    apply_color_scheme(app)
 
     # 1. Set the global application icon
     icon = str((Path(__file__).parent / "ui" / "icon.png"))
