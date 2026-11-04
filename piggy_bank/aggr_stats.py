@@ -11,21 +11,21 @@ COLOR_POSITIVE = '#2ca02c'
 COLOR_NEGATIVE = '#d62728'
 
 
-class AggrStats(QWidget, Ui_AggrStats):
-    """Custom widget to handle aggregation statistics."""
+def signed_color(value: float) -> Optional[str]:
+    """Green when value >= 0, red when negative, None when undefined (NaN)."""
+    if pd.isna(value):
+        return None
+    return COLOR_POSITIVE if value >= 0 else COLOR_NEGATIVE
+
+
+class QW_AggrStats(QWidget, Ui_AggrStats):
+    """Custom widget showing an etica.AggrStats."""
     def __init__(self, title: str, coloured: bool = False, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setupUi(self)
         self.qgb.setTitle(title)
         self.__coloured = coloured
-
-    def __set_signed_text(self, label, value: float):
-        """Sets the label text and, if coloured, paints it green when value >= 0, red when negative."""
-        label.setText(f"{value:.0f}")
-        if not self.__coloured or pd.isna(value):
-            label.setStyleSheet("")
-        else:
-            label.setStyleSheet(f"color: {COLOR_POSITIVE if value >= 0 else COLOR_NEGATIVE};")
+        self.__labels = {f: getattr(self, f'ql_{f}') for f in AggrStats.FIELDS}
 
     def update_stats(self, values: list, hide_if_empty: bool = False):
         """Calculates statistics and updates labels. Hides widget if no values."""
@@ -39,14 +39,8 @@ class AggrStats(QWidget, Ui_AggrStats):
             else:
                 self.setEnabled(False)
 
-        s = pd.Series(values)
-
-        self.ql_entries.setText(f"{len(s): 6d}")
-        self.ql_min.setText(f"{s.min():.0f}")
-        self.ql_max.setText(f"{s.max():.0f}")
-        self.__set_signed_text(self.ql_sum, s.sum())
-        self.__set_signed_text(self.ql_median, s.median())
-        self.__set_signed_text(self.ql_avg, s.mean())
-
-        std = s.std()
-        self.ql_std.setText(f"{std:.2f}" if pd.notna(std) else "0.00")
+        stats = AggrStats(values)
+        for field, label in self.__labels.items():
+            label.setText(f"{stats.entries: 6d}" if field == 'entries' else stats.text(field))
+            colour = signed_color(getattr(stats, field)) if self.__coloured and field in AggrStats.SIGNED else None
+            label.setStyleSheet(f"color: {colour};" if colour else "")

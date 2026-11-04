@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ClassesPeriods</class>
+ <widget class="QWidget" name="ClassesPeriods">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>917</width>
+    <height>479</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Form</string>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout" stretch="1,1">
+   <item>
+    <layout class="QHBoxLayout" name="qhl_classes" stretch="1,5">
+     <item>
+      <widget class="QGroupBox" name="qgb_settings_classes">
+       <property name="title">
+        <string>Settings</string>
+       </property>
+       <layout class="QVBoxLayout" name="verticalLayout_2">
+        <item>
+         <widget class="QLabel" name="label_2">
+          <property name="text">
+           <string># Classes</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSpinBox" name="qsb_classes_number"/>
+        </item>
+        <item>
+         <spacer name="verticalSpacer_2">
+          <property name="orientation">
+           <enum>Qt::Orientation::Vertical</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>20</width>
+            <height>29</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item>
+      <layout class="QVBoxLayout" name="qvl_classes"/>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="qhl_periods" stretch="1,5">
+     <item>
+      <widget class="QGroupBox" name="qgb_settings_periods">
+       <property name="title">
+        <string>Settings</string>
+       </property>
+       <layout class="QVBoxLayout" name="verticalLayout_3">
+        <item>
+         <widget class="QLabel" name="label">
+          <property name="text">
+           <string>Time</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QComboBox" name="qcb_periods_time">
+          <property name="currentIndex">
+           <number>1</number>
+          </property>
+          <item>
+           <property name="text">
+            <string>Weekly</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Monthly</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Yearly</string>
+           </property>
+          </item>
+         </widget>
+        </item>
+        <item>
+         <spacer name="verticalSpacer_3">
+          <property name="orientation">
+           <enum>Qt::Orientation::Vertical</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>20</width>
+            <height>29</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item>
+      <layout class="QVBoxLayout" name="qvl_periods">
+       <item>
+        <widget class="QTableWidget" name="qtw_periods">
+         <column>
+          <property name="text">
+           <string>Date</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>Out</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>In</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>Sum</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>Entries</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>Min</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>Max</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>Median</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>Avg</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>Std</string>
+          </property>
+         </column>
+        </widget>
+       </item>
+      </layout>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

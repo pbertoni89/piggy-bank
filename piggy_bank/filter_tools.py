@@ -7,7 +7,7 @@ from piggy_bank.etica import *
 from piggy_bank.ui.filter_tools_rc import Ui_FilterTools
 
 
-class FilterTools(QWidget, Ui_FilterTools):
+class QW_FilterTools(QWidget, Ui_FilterTools):
     """Custom widget to handle filter tools."""
 
     # Custom signal emitted when filters are stable and ready to be applied

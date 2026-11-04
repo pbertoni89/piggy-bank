@@ -17,7 +17,7 @@
    <item>
     <layout class="QHBoxLayout" name="qhl_histograms" stretch="1,2,2">
      <item>
-      <widget class="QGroupBox" name="groupBox">
+      <widget class="QGroupBox" name="qgb_settings_histograms">
        <property name="title">
         <string>Settings</string>
        </property>
@@ -122,10 +122,11 @@
    <item>
     <layout class="QHBoxLayout" name="ql_box_whiskers" stretch="1,2,2">
      <item>
-      <widget class="QGroupBox" name="groupBox_2">
+      <widget class="QGroupBox" name="qgb_settings_box_whiskers">
        <property name="title">
         <string>Settings</string>
        </property>
+       <layout class="QVBoxLayout" name="verticalLayout_3"/>
       </widget>
      </item>
      <item>

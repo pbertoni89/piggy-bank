@@ -5,6 +5,8 @@ import pytest
 
 from piggy_bank.etica import (COL_DATA, COL_MINUS, COL_PLUS, COL_DESCR, COL_RUN_TOT, COL_OLS, COL_IMP, COL_INV,
                               compute_importo, compute_ols, compute_candlesticks,
+                              TF_WEEKLY, TF_MONTHLY, TF_YEARLY, period_start, AggrStats, compute_period_stats,
+                              COL_PERIOD,
                               COL_BL, MODE_ALL, MODE_FORCE, MODE_VETO, mode_keeps, apply_modes, build_view,
                               sort_by_data_contabile)
 
@@ -50,12 +52,63 @@ def test_compute_candlesticks_monthly_ohlc():
         COL_RUN_TOT: [10.0, 30.0, 20.0, 5.0],
     })
 
-    out = compute_candlesticks(df, 'ME')
+    out = compute_candlesticks(df, TF_MONTHLY)
 
     assert list(out.columns) == ['Date', 'Open', 'High', 'Low', 'Close']
     jan = out.iloc[0]
     assert (jan.Open, jan.High, jan.Low, jan.Close) == (10.0, 30.0, 10.0, 20.0)
     assert len(out) == 2
+    assert list(out['Date']) == list(pd.to_datetime(['2025-01-01', '2025-02-01']))  # months start on the 1st
+
+
+def test_compute_candlesticks_weekly_starts_on_monday():
+    # Sun 5 Jan closes the week of Mon 30 Dec; Mon 6 Jan opens the next one
+    df = pd.DataFrame({COL_DATA: ['2025-01-05', '2025-01-06', '2025-01-12'], COL_RUN_TOT: [1.0, 2.0, 3.0]})
+
+    out = compute_candlesticks(df, TF_WEEKLY)
+
+    assert list(out['Date']) == list(pd.to_datetime(['2024-12-30', '2025-01-06']))
+    assert list(out['Close']) == [1.0, 3.0]
+
+
+@pytest.mark.parametrize('timeframe, expected', [
+    (TF_WEEKLY, ['2024-12-30', '2025-01-06', '2025-12-29']),
+    (TF_MONTHLY, ['2025-01-01', '2025-01-01', '2025-12-01']),
+    (TF_YEARLY, ['2025-01-01', '2025-01-01', '2025-01-01'])])
+def test_period_start(timeframe, expected):
+    dates = pd.Series(['2025-01-05', '2025-01-06', '2025-12-31'])
+    assert list(period_start(dates, timeframe)) == list(pd.to_datetime(expected))
+
+
+def test_aggr_stats():
+    st = AggrStats([1.0, 2.0, 3.0, 10.0])
+    assert (st.entries, st.min, st.max, st.sum, st.median, st.avg) == (4, 1.0, 10.0, 16.0, 2.5, 4.0)
+    assert st.text('entries') == '4' and st.text('median') == '2' and st.text('std') == f'{st.std:.2f}'
+
+
+def test_aggr_stats_empty_and_single():
+    empty = AggrStats([])
+    assert empty.entries == 0 and empty.sum == 0 and math.isnan(empty.min)
+    assert AggrStats([5.0]).text('std') == '0.00'  # undefined for a single value
+
+
+def test_compute_period_stats_monthly():
+    df = pd.DataFrame({COL_DATA: ['2025-01-31', '2025-01-02', '2025-02-01', '2025-02-10'],
+                       COL_MINUS: [-10.0, 0.0, -5.0, None],
+                       COL_PLUS: [0.0, 100.0, None, 20.0]})
+
+    out = compute_period_stats(df, TF_MONTHLY)
+
+    assert list(out[COL_PERIOD]) == list(pd.to_datetime(['2025-01-01', '2025-02-01']))
+    jan, feb = out.iloc[0], out.iloc[1]
+    assert (jan[COL_MINUS], jan[COL_PLUS], jan['sum'], jan['entries'], jan['min'], jan['max']) == \
+        (-10.0, 100.0, 90.0, 2, -10.0, 100.0)
+    assert (feb[COL_MINUS], feb[COL_PLUS], feb['sum'], feb['median']) == (-5.0, 20.0, 15.0, 7.5)
+
+
+def test_compute_period_stats_empty():
+    out = compute_period_stats(pd.DataFrame(columns=[COL_DATA, COL_MINUS, COL_PLUS]), TF_YEARLY)
+    assert out.empty and list(out.columns) == [COL_PERIOD, COL_MINUS, COL_PLUS, *AggrStats.FIELDS]
 
 
 def test_compute_candlesticks_bad_timeframe_returns_empty():

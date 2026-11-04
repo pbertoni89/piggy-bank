@@ -3,11 +3,12 @@ import os
 import signal
 from typing import Optional
 
+import pandas as pd
 import plotly.graph_objects as go
 
-from PySide6.QtCore import Qt, QTimer, QCoreApplication
+from PySide6.QtCore import Qt, QTimer, QCoreApplication, Slot
 from PySide6.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout, QTableWidgetItem
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtGui import QColor, QPalette, QBrush
 
 try:
     # noinspection unused-imports
@@ -20,6 +21,10 @@ except ImportError:
 from piggy_bank.ui.ledger_rc import Ui_Ledger
 from piggy_bank.ui.plots_lines_rc import Ui_PlotsLines
 from piggy_bank.ui.plots_stats_rc import Ui_PlotsStats
+from piggy_bank.ui.classes_periods_rc import Ui_ClassesPeriods
+from piggy_bank.aggr_stats import signed_color
+from piggy_bank.etica import (COL_DATA, COL_MINUS, COL_PLUS, COL_PERIOD, TF_WEEKLY, TF_MONTHLY, TF_YEARLY,
+                              AggrStats, compute_period_stats)
 
 
 def install_sigint_handler(app: QCoreApplication, interval_ms: int = 200) -> QTimer:
@@ -190,22 +195,86 @@ class NumericTableWidgetItem(QTableWidgetItem):
             return super().__lt__(other)
 
 
-class Ledger(QWidget, Ui_Ledger):
+class QW_Ledger(QWidget, Ui_Ledger):
     """Custom widget to handle the ledger table."""
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setupUi(self)
 
 
-class PlotsLines(QWidget, Ui_PlotsLines):
+class QW_PlotsLines(QWidget, Ui_PlotsLines):
     """Custom widget to handle the line plots."""
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setupUi(self)
 
 
-class PlotsStats(QWidget, Ui_PlotsStats):
+class QW_PlotsStats(QWidget, Ui_PlotsStats):
     """Custom widget to handle the statistical plots."""
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setupUi(self)
+
+
+class QW_ClassesPeriods(QWidget, Ui_ClassesPeriods):
+    """Classes and periods tab. The periods table has one row per period (qcb_periods_time) of the visible
+    ledger rows: outflows, inflows and the etica.AggrStats of the amounts.
+
+    The table columns come from the .ui header texts: 'Date', 'Out', 'In', or an AggrStats field
+    name capitalised ('Sum', 'Entries', ...). Unknown headers raise at startup.
+    """
+    PERIOD_FORMATS = {TF_WEEKLY: '%Y-%m-%d', TF_MONTHLY: '%Y-%m', TF_YEARLY: '%Y'}
+    __HEADER_KEYS = {'Date': COL_PERIOD, 'Out': COL_MINUS, 'In': COL_PLUS}
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.setupUi(self)
+
+        self.__columns = []
+        for c in range(self.qtw_periods.columnCount()):
+            text = self.qtw_periods.horizontalHeaderItem(c).text()
+            key = self.__HEADER_KEYS.get(text, text.lower())
+            if key not in self.__HEADER_KEYS.values() and key not in AggrStats.FIELDS:
+                raise ValueError(f"qtw_periods: unknown column header {text!r}")
+            self.__columns.append(key)
+
+        self.__df = pd.DataFrame(columns=[COL_DATA, COL_MINUS, COL_PLUS])
+        self.qtw_periods.setSortingEnabled(True)
+        # Newest period first, like the ledger. A sort chosen by the user is kept across refreshes.
+        self.qtw_periods.sortItems(self.__columns.index(COL_PERIOD), Qt.SortOrder.DescendingOrder)
+        self.qcb_periods_time.currentIndexChanged.connect(self._on_qcb_periods_time_currentIndexChanged)
+
+    def timeframe(self) -> str:
+        return self.qcb_periods_time.currentText()
+
+    def update_periods(self, df: pd.DataFrame):
+        """Stores df (the visible ledger rows: COL_DATA, COL_MINUS, COL_PLUS) and refreshes the table."""
+        self.__df = df
+        self._populate()
+
+    @Slot(int)
+    def _on_qcb_periods_time_currentIndexChanged(self, _index: int):
+        self._populate()
+
+    def _populate(self):
+        timeframe = self.timeframe()
+        df_periods = compute_period_stats(self.__df, timeframe)
+        fmt = self.PERIOD_FORMATS[timeframe]
+
+        table = self.qtw_periods
+        table.setSortingEnabled(False)
+        table.setRowCount(len(df_periods))
+        for row_idx, row in enumerate(df_periods.to_dict('records')):
+            for col_idx, key in enumerate(self.__columns):
+                if key == COL_PERIOD:
+                    item = QTableWidgetItem(row[key].strftime(fmt))
+                elif key in (COL_MINUS, COL_PLUS):
+                    item = NumericTableWidgetItem(f"{row[key]:.0f}")
+                else:
+                    item = NumericTableWidgetItem(AggrStats.format(key, row[key]))
+                    colour = signed_color(row[key]) if key in AggrStats.SIGNED else None
+                    if colour:
+                        item.setForeground(QBrush(QColor(colour)))
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                table.setItem(row_idx, col_idx, item)
+        table.setSortingEnabled(True)

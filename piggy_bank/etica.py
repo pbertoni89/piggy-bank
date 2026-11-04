@@ -51,6 +51,7 @@ MODES = (MODE_ALL, MODE_FORCE, MODE_VETO)
 
 # Adjust this path to match your notebook location relative to the data
 # Currently assumes the notebook is in the same folder as the original script
+# TODO get as env var PB_DATA_DIR
 DATA_DIR = Path(__file__).parent.parent / 'data' / 'etica'
 
 
@@ -294,28 +295,96 @@ def plot_saldo_ols_interactive(views: dict) -> None:
     fig.show()
 
 
+# Time frames, as shown in the GUI combo boxes. Every period starts at its natural boundary:
+# weeks on Monday (pandas' 'W' period runs Monday to Sunday), months on the 1st, years on January 1st.
+TF_WEEKLY = 'Weekly'
+TF_MONTHLY = 'Monthly'
+TF_YEARLY = 'Yearly'
+TIMEFRAMES = {TF_WEEKLY: 'W', TF_MONTHLY: 'M', TF_YEARLY: 'Y'}
+
+
+def period_start(dates: pd.Series, timeframe: str) -> pd.Series:
+    """Maps each date to the first day of its period (see TIMEFRAMES). Raises KeyError on an unknown timeframe."""
+    return pd.to_datetime(dates).dt.to_period(TIMEFRAMES[timeframe]).dt.start_time
+
+
 def compute_candlesticks(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
-    """Resamples 'Saldo' to OHLC candlesticks based on timeframe."""
+    """OHLC candlesticks of the running total, one per period (TF_WEEKLY/TF_MONTHLY/TF_YEARLY).
+    'Date' is the period's first day. Periods with no rows are left out."""
     df_copy = df.copy()
     df_copy[COL_DATA] = pd.to_datetime(df_copy[COL_DATA], errors='coerce')
     df_copy = df_copy.dropna(subset=[COL_DATA, COL_RUN_TOT])
-    df_copy = df_copy.set_index(COL_DATA)
 
-    try:
-        rv = df_copy[COL_RUN_TOT].resample(timeframe).agg(
-            Open='first',
-            High='max',
-            Low='min',
-            Close='last'
-        )
-    except Exception as e:
-        _lg.error(f"Resampling with timeframe '{timeframe}' failed: {e}")
+    if timeframe not in TIMEFRAMES:
+        _lg.error(f"Unknown candlestick timeframe '{timeframe}', expected one of {list(TIMEFRAMES)}")
         return pd.DataFrame()
 
-    rv = rv.dropna()
-    rv = rv.reset_index()
-    rv = rv.rename(columns={COL_DATA: 'Date'})
-    return rv
+    # Stable sort, so 'first'/'last' are the chronological open/close even on unsorted input
+    df_copy = df_copy.sort_values(COL_DATA, kind='stable')
+    rv = df_copy.groupby(period_start(df_copy[COL_DATA], timeframe))[COL_RUN_TOT].agg(
+        Open='first',
+        High='max',
+        Low='min',
+        Close='last'
+    )
+    rv.index.name = 'Date'
+    return rv.reset_index()
+
+
+class AggrStats:
+    """Summary statistics of a list of amounts (no Qt): entries, min, max, sum, median, avg, std.
+    Empty input gives 0 entries, sum 0 and NaN for the rest. std is the sample one, NaN under 2 values."""
+    FIELDS = ('entries', 'min', 'max', 'sum', 'median', 'avg', 'std')
+    SIGNED = ('sum', 'median', 'avg')  # the fields whose sign matters (coloured green/red in the GUI)
+
+    def __init__(self, values):
+        s = pd.Series(values, dtype=float)
+        self.entries = len(s)
+        self.min = s.min()
+        self.max = s.max()
+        self.sum = s.sum()
+        self.median = s.median()
+        self.avg = s.mean()
+        self.std = s.std()
+
+    def text(self, field: str) -> str:
+        """The field formatted for display, see format()."""
+        return self.format(field, getattr(self, field))
+
+    @staticmethod
+    def format(field: str, value) -> str:
+        """Formats a field value: entries as an integer, std with 2 decimals (0.00 when undefined),
+        everything else rounded to units."""
+        if field == 'entries':
+            return f"{int(value):d}"
+        if field == 'std':
+            return f"{value:.2f}" if pd.notna(value) else "0.00"
+        return f"{value:.0f}"
+
+    def __repr__(self):
+        return 'AggrStats(' + ', '.join(f'{f}={getattr(self, f)!r}' for f in self.FIELDS) + ')'
+
+
+COL_PERIOD = 'Date'
+
+
+def compute_period_stats(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
+    """One row per period with rows (TF_WEEKLY/TF_MONTHLY/TF_YEARLY), oldest first.
+    Columns: COL_PERIOD (the period's first day), COL_MINUS (sum of outflows), COL_PLUS (sum of inflows),
+    then the AggrStats FIELDS over the amounts (Dare + Avere) of that period."""
+    columns = [COL_PERIOD, COL_MINUS, COL_PLUS, *AggrStats.FIELDS]
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+    out = pd.to_numeric(df[COL_MINUS], errors='coerce').fillna(0)
+    inc = pd.to_numeric(df[COL_PLUS], errors='coerce').fillna(0)
+    tmp = pd.DataFrame({COL_PERIOD: period_start(df[COL_DATA], timeframe),
+                        COL_MINUS: out, COL_PLUS: inc, COL_IMP: out + inc})
+    rows = []
+    for start, grp in tmp.groupby(COL_PERIOD, sort=True):
+        st = AggrStats(grp[COL_IMP])
+        rows.append({COL_PERIOD: start, COL_MINUS: grp[COL_MINUS].sum(), COL_PLUS: grp[COL_PLUS].sum(),
+                     **{f: getattr(st, f) for f in AggrStats.FIELDS}})
+    return pd.DataFrame(rows, columns=columns)
 
 
 def plot_candlestick(df: pd.DataFrame, lbl: str) -> None:

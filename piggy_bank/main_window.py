@@ -12,8 +12,8 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMainWindow, QTableWidgetItem, QHeaderView, QFileDialog, QMessageBox
 from piggy_bank.qw_misc import *
 from piggy_bank.ui.main_window_rc import Ui_MainWindow
-from piggy_bank.aggr_stats import AggrStats
-from piggy_bank.filter_tools import FilterTools
+from piggy_bank.aggr_stats import QW_AggrStats
+from piggy_bank.filter_tools import QW_FilterTools
 from piggy_bank.etica import *
 # DATA_DIR is read through the module at call time, so it can be redirected (e.g. by tests)
 from piggy_bank import etica
@@ -24,24 +24,28 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def __init__(self):
         super().__init__()
         self.setupUi(self)
+        # Always start on the ledger, whatever tab was current when the .ui was last saved in Designer
+        self.tabWidget.setCurrentWidget(self.tab_ledger)
 
         # Instantiate decoupled UI components
-        self.ui_ledger = Ledger(self)
-        self.ui_plots_lines = PlotsLines(self)
-        self.ui_plots_stats = PlotsStats(self)
+        self.ui_ledger = QW_Ledger(self)
+        self.ui_plots_lines = QW_PlotsLines(self)
+        self.ui_plots_stats = QW_PlotsStats(self)
+        self.ui_classes_periods = QW_ClassesPeriods(self)
 
         # Add decoupled widgets to the MainWindow's tab layouts
         self.ql_ledger.addWidget(self.ui_ledger)
         self.ql_plots_lines.addWidget(self.ui_plots_lines)
         self.ql_plots_stats.addWidget(self.ui_plots_stats)
+        self.ql_classes.addWidget(self.ui_classes_periods)
 
         df = self.get_data_source()
 
         # Initialise dynamic widgets
-        self.stats_all = AggrStats("All", coloured=True)
-        self.stats_out = AggrStats("Out")
-        self.stats_in = AggrStats("In")
-        self.ft = FilterTools(df)
+        self.stats_all = QW_AggrStats("All", coloured=True)
+        self.stats_out = QW_AggrStats("Out")
+        self.stats_in = QW_AggrStats("In")
+        self.ft = QW_FilterTools(df)
 
         # Main window layouts
         self.qvl_aggr_stats.insertWidget(0, self.stats_all)
@@ -376,6 +380,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         self.df_plot = pd.DataFrame(plot_data)
         self._update_plot()
+        self.ui_classes_periods.update_periods(self.df_plot)
 
     @Slot()
     def _update_plot(self):
@@ -475,16 +480,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.plot_hist_time.render_figure(fig_hist_time)
 
         # 4. Candlesticks
+        # Weeks start on Monday, months on the 1st (etica.TIMEFRAMES); each candle sits on its period's first day
         candle_time_str = self.ui_plots_lines.qcb_candles_time.currentText()
-        if candle_time_str == "Weekly":
-            timeframe = 'W'
-        elif candle_time_str == "Monthly":
-            timeframe = 'ME'
-        else:
-            timeframe = 'YE'
-
         fig_candle = go.Figure()
-        df_candle = compute_candlesticks(self.df_plot, timeframe)
+        df_candle = compute_candlesticks(self.df_plot, candle_time_str)
         if not df_candle.empty:
             fig_candle.add_trace(go.Candlestick(
                 x=df_candle['Date'], open=df_candle['Open'],

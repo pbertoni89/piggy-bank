@@ -10,12 +10,15 @@ jupyterPort="${PIGGYBANK_JUPYTER_PORT:-8888}"
 # and survive the --rm containers. Remove it with: docker volume rm piggy-bank-hf-cache
 hfCacheVolume="${PIGGYBANK_HF_VOLUME:-piggy-bank-hf-cache}"
 hfCacheMount="${hfCacheVolume}:/home/piggy/.cache/huggingface"
+export PB_DATA_DIR="${dirRoot}/data/etica"
+mkdir -p "${PB_DATA_DIR}"
 
 
 function pb_docker_build_image() {
   "${dockerEngine}" build -t "${dockerImage}" \
     --build-arg UID="$(id -u)" --build-arg GID="$(id -g)" \
     "${dirRoot}"
+  echo "Built ${dockerImage}"
 }
 
 
@@ -47,7 +50,7 @@ function pb_docker_run_gui() {
   else
     echo "xhost not found: if the GUI can't open the display, install xorg-x11-server-utils / x11-xserver-utils"
   fi
-  mkdir -p "${dirRoot}/data/etica"
+
   # The image renders in software by default. PIGGYBANK_GPU=1 passes the host GPU (Mesa drivers:
   # Intel/AMD) and re-enables Chromium's GPU path. If the window never appears with it, drop it.
   local gpuArgs=()
@@ -76,7 +79,6 @@ function pb_docker_run_gui() {
 
 
 function pb_docker_jupyter() {
-  mkdir -p "${dirRoot}/data/etica"
   # piggy_bank/ is mounted (not baked) so notebook edits land in the repo and etica.py changes are live.
   # The port is bound to localhost only: the notebooks see real bank data.
   echo "JupyterLab on http://127.0.0.1:${jupyterPort} (open the URL with ?token=... printed below)"

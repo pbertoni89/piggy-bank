@@ -70,6 +70,16 @@
         </item>
        </layout>
       </widget>
+      <widget class="QWidget" name="tab_classes">
+       <attribute name="title">
+        <string>Classes</string>
+       </attribute>
+       <layout class="QVBoxLayout" name="verticalLayout_5">
+        <item>
+         <layout class="QVBoxLayout" name="ql_classes"/>
+        </item>
+       </layout>
+      </widget>
      </widget>
     </item>
    </layout>

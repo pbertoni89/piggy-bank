@@ -79,6 +79,23 @@ def visible_descriptions(w) -> list:
     return sorted(table.item(r, col).text() for r in range(table.rowCount()) if not table.isRowHidden(r))
 
 
+def test_starts_on_ledger_tab(window):
+    # main_window.ui may be saved with another current tab
+    assert window.tabWidget.currentWidget() is window.tab_ledger
+
+
+def test_periods_tab_follows_filters(window):
+    periods = window.ui_classes_periods
+    periods.qcb_periods_time.setCurrentText('Monthly')
+    table = periods.qtw_periods
+    assert table.rowCount() == 1 and table.item(0, 0).text() == '2025-01'
+    assert table.item(0, 4).text() == '2'  # Entries
+
+    window.ft.qle_description.setText('pizza')
+    window._apply_filters()
+    assert table.item(0, 4).text() == '1'
+
+
 class TestInvestmentColumn:
 
     @pytest.fixture
