@@ -7,7 +7,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from PySide6.QtCore import Qt, QTimer, QCoreApplication, Slot
-from PySide6.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout, QTableWidgetItem
+from PySide6.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout, QTableWidgetItem, QHeaderView, QTableWidget
 from PySide6.QtGui import QColor, QPalette, QBrush
 
 try:
@@ -23,18 +23,27 @@ from piggy_bank.ui.plots_lines_rc import Ui_PlotsLines
 from piggy_bank.ui.plots_stats_rc import Ui_PlotsStats
 from piggy_bank.ui.classes_rc import Ui_Classes
 from piggy_bank.ui.periods_rc import Ui_Periods
+from piggy_bank.ui.movements_table_rc import Ui_MovementsTable
+from piggy_bank.ui.periods_table_rc import Ui_PeriodsTable
 from piggy_bank.aggr_stats import signed_color
-from piggy_bank.etica import (COL_DATE, COL_OUT, COL_IN, COL_PERIOD, TF_WEEKLY, TF_MONTHLY, TF_YEARLY,
-                              AggrStats, compute_period_stats)
+from piggy_bank.etica import (COL_DATE, COL_OUT, COL_IN, COL_DESCR, COL_CLASS, COL_AMOUNT, COL_PERIOD,
+                              TF_WEEKLY, TF_MONTHLY, TF_YEARLY, AggrStats, compute_period_stats, sorted_classes)
 
 
 def install_sigint_handler(app: QCoreApplication, interval_ms: int = 200) -> QTimer:
-    """Makes SIGINT (Ctrl+C) quit the Qt event loop gracefully, with exit code 128 + SIGINT = 130.
+    """Makes SIGINT (Ctrl+C) quit gracefully, with exit code 128 + SIGINT = 130. Install it as soon as the app exists.
+
+    - While the event loop runs, it calls app.exit(130), and app.exec() returns 130.
+    - Before (or after) it, app.exit() would be ignored, so it raises KeyboardInterrupt instead, like Python's
+      default handler: the caller must catch it around its startup code (see main_window.main()).
 
     Python only runs signal handlers when the interpreter gets control back, which never happens
     while Qt sits idle in its C++ event loop. A periodic no-op timer hands control back to Python.
     """
     def _on_sigint(signum, _frame):
+        if app.thread().loopLevel() == 0:
+            logging.warning('SIGINT received outside the event loop, interrupting')
+            raise KeyboardInterrupt
         logging.warning('SIGINT received, quitting')
         app.exit(128 + signum)
 
@@ -217,40 +226,151 @@ class QW_PlotsStats(QWidget, Ui_PlotsStats):
         self.setupUi(self)
 
 
-class QW_Classes(QWidget, Ui_Classes):
-    """Classes tab: settings for automatic clustering (number of classes, seed) and the classes view.
-    Not implemented yet."""
+class StaticColumnsTable:
+    """Fills a QTableWidget whose columns are fixed in its .ui: each column shows the DataFrame column named like
+    its header text. Add, remove or reorder columns in Designer, no code change needed; a header text not in
+    `known` raises ValueError at construction, so a typo shows up at startup.
+
+    Cells are read-only, numeric DataFrame columns sort numerically. default_sort (header text, order) is applied
+    once at construction: after that, the sort the user picks by clicking a header is kept across refreshes.
+    The stretch column (if present) takes the spare width."""
+
+    def __init__(self, qtw: QTableWidget, known, default_sort: Optional[tuple] = None, stretch: Optional[str] = None):
+        self.qtw = qtw
+        self.columns = [qtw.horizontalHeaderItem(c).text() for c in range(qtw.columnCount())]
+        unknown = [c for c in self.columns if c not in known]
+        if unknown:
+            raise ValueError(f'{qtw.objectName()}: unknown column headers {unknown}, expected some of {list(known)}')
+        qtw.setSortingEnabled(True)
+        if stretch in self.columns:
+            qtw.horizontalHeader().setSectionResizeMode(self.columns.index(stretch), QHeaderView.ResizeMode.Stretch)
+        if default_sort and default_sort[0] in self.columns:
+            qtw.sortItems(self.columns.index(default_sort[0]), default_sort[1])
+
+    def show_frame(self, df: pd.DataFrame, formats: Optional[dict] = None, colours: Optional[dict] = None):
+        """Fills the table with df, which must have every header column.
+        formats: {column: value -> str}; without one, NaN is blank, a float has 2 decimals, the rest is str().
+        colours: {column: value -> colour name or None}, for the text."""
+        formats, colours = formats or {}, colours or {}
+        qtw = self.qtw
+        qtw.setSortingEnabled(False)
+        qtw.setRowCount(len(df))
+        for col_idx, col in enumerate(self.columns):
+            numeric = pd.api.types.is_numeric_dtype(df[col])
+            fmt = formats.get(col, self.format)
+            colour_of = colours.get(col)
+            for row_idx, value in enumerate(df[col]):
+                text = fmt(value)
+                item = NumericTableWidgetItem(text) if numeric else QTableWidgetItem(text)
+                colour = colour_of(value) if colour_of else None
+                if colour:
+                    item.setForeground(QBrush(QColor(colour)))
+                item.setToolTip(text)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                qtw.setItem(row_idx, col_idx, item)
+        qtw.setSortingEnabled(True)  # re-sorts by the current sort indicator
+
+    @staticmethod
+    def format(value) -> str:
+        if pd.isna(value):
+            return ''
+        return f'{value:.2f}' if isinstance(value, float) else str(value)
+
+
+class QW_MovementsTable(QWidget, Ui_MovementsTable):
+    """Movements (ledger rows) in qtw_movements, columns from movements_table.ui (any of KNOWN), newest first.
+    Out and In are 0 when blank in the ledger, and shown blank here too."""
+    KNOWN = (COL_DATE, COL_OUT, COL_IN, COL_DESCR, COL_AMOUNT, COL_CLASS)
+
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setupUi(self)
+        self.table = StaticColumnsTable(self.qtw_movements, self.KNOWN,
+                                        default_sort=(COL_DATE, Qt.SortOrder.DescendingOrder), stretch=COL_DESCR)
+
+    def show_movements(self, df: pd.DataFrame):
+        """df: ledger rows with (at least) the header columns, e.g. MainWindow.df_plot."""
+        self.table.show_frame(df, formats={COL_OUT: self._amount, COL_IN: self._amount})
+
+    @staticmethod
+    def _amount(value) -> str:
+        return '' if pd.isna(value) or value == 0 else f'{value:.2f}'
+
+
+class QW_PeriodsTable(QWidget, Ui_PeriodsTable):
+    """Period stats in qtw_periods, columns from periods_table.ui: 'Date' (the period), 'Out', 'In', or an
+    AggrStats field capitalised ('Sum', 'Entries', ...). Newest first; the SIGNED fields are green/red."""
+    HEADERS = {COL_PERIOD: 'Date', COL_OUT: 'Out', COL_IN: 'In', **{f: f.capitalize() for f in AggrStats.FIELDS}}
+    PERIOD_FORMATS = {TF_WEEKLY: '%Y-%m-%d', TF_MONTHLY: '%Y-%m', TF_YEARLY: '%Y'}
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.setupUi(self)
+        self.table = StaticColumnsTable(self.qtw_periods, self.HEADERS.values(),
+                                        default_sort=(self.HEADERS[COL_PERIOD], Qt.SortOrder.DescendingOrder))
+
+    def show_periods(self, df_periods: pd.DataFrame, timeframe: str):
+        """df_periods: the output of etica.compute_period_stats() for this timeframe."""
+        fmt = self.PERIOD_FORMATS[timeframe]
+        formats = {self.HEADERS[COL_PERIOD]: lambda d: d.strftime(fmt),
+                   self.HEADERS[COL_OUT]: lambda v: f"{v:.0f}", self.HEADERS[COL_IN]: lambda v: f"{v:.0f}"}
+        colours = {}
+        for f in AggrStats.FIELDS:
+            formats[self.HEADERS[f]] = lambda v, f=f: AggrStats.format(f, v)
+            if f in AggrStats.SIGNED:
+                colours[self.HEADERS[f]] = signed_color
+        self.table.show_frame(df_periods.rename(columns=self.HEADERS), formats, colours)
+
+
+class QW_Classes(QWidget, Ui_Classes):
+    """Classes tab. qtw_tabs has one tab per class among the visible ledger rows (so the ledger filters apply),
+    labelled with the class name, each with a QW_MovementsTable of that class's movements (columns from
+    movements_table.ui).
+    The clustering settings (qsb_settings_classes_num, qsb_settings_seed) and qhl_charts are not implemented yet."""
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.setupUi(self)
+        # {class name: its table}. A class's table is reused while the class stays visible, so its sort is kept
+        self.__tables = {}
+
+    def class_tables(self) -> dict:
+        """{class name: QW_MovementsTable}, in tab order."""
+        return dict(self.__tables)
+
+    def update_classes(self, df: pd.DataFrame):
+        """Rebuilds the tabs from df, the visible ledger rows (COL_DATE, COL_OUT, COL_IN, COL_DESCR, COL_CLASS),
+        keeping the current tab selected if its class is still there."""
+        tabs = self.qtw_tabs
+        current = tabs.tabText(tabs.currentIndex()) if tabs.count() else None
+        classes = sorted_classes(df[COL_CLASS]) if not df.empty else []
+
+        tabs.blockSignals(True)
+        tabs.clear()  # removes the tabs, not their widgets
+        for cls in [c for c in self.__tables if c not in classes]:
+            self.__tables.pop(cls).deleteLater()
+        for cls in classes:
+            table = self.__tables.get(cls) or QW_MovementsTable()
+            self.__tables[cls] = table
+            table.show_movements(df[df[COL_CLASS] == cls])
+            tabs.addTab(table, cls)
+        self.__tables = {cls: self.__tables[cls] for cls in classes}  # tab order
+        if current in self.__tables:
+            tabs.setCurrentIndex(classes.index(current))
+        tabs.blockSignals(False)
 
 
 class QW_Periods(QWidget, Ui_Periods):
-    """Periods tab. The periods table has one row per period (qcb_periods_time) of the visible
-    ledger rows: outflows, inflows and the etica.AggrStats of the amounts.
-
-    The table columns come from the .ui header texts: 'Date', 'Out', 'In', or an AggrStats field
-    name capitalised ('Sum', 'Entries', ...). Unknown headers raise at startup.
-    """
-    PERIOD_FORMATS = {TF_WEEKLY: '%Y-%m-%d', TF_MONTHLY: '%Y-%m', TF_YEARLY: '%Y'}
-    __HEADER_KEYS = {'Date': COL_PERIOD, 'Out': COL_OUT, 'In': COL_IN}
+    """Periods tab: a QW_PeriodsTable in qvl_periods with one row per period (qcb_periods_time) of the visible
+    ledger rows: outflows, inflows and the etica.AggrStats of the amounts."""
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setupUi(self)
-
-        self.__columns = []
-        for c in range(self.qtw_periods.columnCount()):
-            text = self.qtw_periods.horizontalHeaderItem(c).text()
-            key = self.__HEADER_KEYS.get(text, text.lower())
-            if key not in self.__HEADER_KEYS.values() and key not in AggrStats.FIELDS:
-                raise ValueError(f"qtw_periods: unknown column header {text!r}")
-            self.__columns.append(key)
+        self.table = QW_PeriodsTable(self)
+        self.qvl_periods.addWidget(self.table)
 
         self.__df = pd.DataFrame(columns=[COL_DATE, COL_OUT, COL_IN])
-        self.qtw_periods.setSortingEnabled(True)
-        # Newest period first, like the ledger. A sort chosen by the user is kept across refreshes.
-        self.qtw_periods.sortItems(self.__columns.index(COL_PERIOD), Qt.SortOrder.DescendingOrder)
         self.qcb_periods_time.currentIndexChanged.connect(self._on_qcb_periods_time_currentIndexChanged)
 
     def timeframe(self) -> str:
@@ -267,23 +387,4 @@ class QW_Periods(QWidget, Ui_Periods):
 
     def _populate(self):
         timeframe = self.timeframe()
-        df_periods = compute_period_stats(self.__df, timeframe)
-        fmt = self.PERIOD_FORMATS[timeframe]
-
-        table = self.qtw_periods
-        table.setSortingEnabled(False)
-        table.setRowCount(len(df_periods))
-        for row_idx, row in enumerate(df_periods.to_dict('records')):
-            for col_idx, key in enumerate(self.__columns):
-                if key == COL_PERIOD:
-                    item = QTableWidgetItem(row[key].strftime(fmt))
-                elif key in (COL_OUT, COL_IN):
-                    item = NumericTableWidgetItem(f"{row[key]:.0f}")
-                else:
-                    item = NumericTableWidgetItem(AggrStats.format(key, row[key]))
-                    colour = signed_color(row[key]) if key in AggrStats.SIGNED else None
-                    if colour:
-                        item.setForeground(QBrush(QColor(colour)))
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                table.setItem(row_idx, col_idx, item)
-        table.setSortingEnabled(True)
+        self.table.show_periods(compute_period_stats(self.__df, timeframe), timeframe)

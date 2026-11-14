@@ -105,7 +105,7 @@ def test_ledger_header_is_english(window):
 def test_periods_tab_follows_filters(window):
     periods = window.ui_periods
     periods.qcb_periods_time.setCurrentText('Monthly')
-    table = periods.qtw_periods
+    table = periods.table.qtw_periods
     assert table.rowCount() == 1 and table.item(0, 0).text() == '2025-01'
     assert table.item(0, 4).text() == '2'  # Entries
 
@@ -145,6 +145,19 @@ class TestClassColumn:
         window._apply_filters()
 
         assert window.df_plot[COL_RUN_TOT].iloc[-1] == pytest.approx(90.0)
+
+
+    def test_class_tabs_follow_filters(self, window):
+        classes = window.ui_classes
+        tabs = classes.qtw_tabs
+        assert [tabs.tabText(i) for i in range(tabs.count())] == ['food', 'investment', CLASS_TODO]
+
+        window.ft.class_checkboxes()['investment'].setChecked(False)
+        window.ft.qle_description.setText('pizza')
+        window._apply_filters()
+
+        assert [tabs.tabText(i) for i in range(tabs.count())] == ['food']
+        assert classes.class_tables()['food'].qtw_movements.rowCount() == 1
 
 
 class TestImportData:

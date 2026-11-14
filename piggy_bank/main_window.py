@@ -335,7 +335,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 'date_val': date_val,
                 'amount': amount,
                 'o_val': o_val,
-                'i_val': i_val
+                'i_val': i_val,
+                'descr': desc_item.text() if desc_item else "",
+                'cls': class_val,
             })
 
             # Accumulate values for statistical widgets
@@ -364,7 +366,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 COL_AMOUNT: row_info['amount'],
                 COL_RUN_TOT: running_total,
                 COL_OUT: row_info['o_val'],
-                COL_IN: row_info['i_val']
+                COL_IN: row_info['i_val'],
+                COL_DESCR: row_info['descr'],
+                COL_CLASS: row_info['cls'],
             })
 
         # Update statistical widgets
@@ -380,6 +384,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.df_plot = pd.DataFrame(plot_data)
         self._update_plot()
         self.ui_periods.update_periods(self.df_plot)
+        self.ui_classes.update_classes(self.df_plot)
 
     @Slot()
     def _update_plot(self):
@@ -548,23 +553,24 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
 def main():
     init_logging(True)
-    app = QApplication(sys.argv)
-    apply_color_scheme(app)
-
-    # 1. Set the global application icon
-    icon = str((Path(__file__).parent / "ui" / "icon.png"))
-    logging.debug(f"Setting application icon from: {icon}")
-    app.setWindowIcon(QIcon(icon))
-
     try:
+        app = QApplication(sys.argv)
+        # Ctrl+C works from here on: before app.exec() it raises KeyboardInterrupt, during it it quits the loop
+        install_sigint_handler(app)
+        apply_color_scheme(app)
+
+        # 1. Set the global application icon
+        icon = str((Path(__file__).parent / "ui" / "icon.png"))
+        logging.debug(f"Setting application icon from: {icon}")
+        app.setWindowIcon(QIcon(icon))
+
         window = MainWindow()
+        logging.debug("Starting Piggy Bank application")
+        window.showMaximized()
     except KeyboardInterrupt:
         # Ctrl+C while loading, before the event loop runs
         logging.critical("Interrupted while starting up")
         sys.exit(128 + signal.SIGINT)
-    logging.debug("Starting Piggy Bank application")
-    window.showMaximized()
-    install_sigint_handler(app)
     logging.debug("Piggy Bank application is now running")
     rv = app.exec()
     logging.critical(f"Exiting Piggy Bank application with return value: {rv}")

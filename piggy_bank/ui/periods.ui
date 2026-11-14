@@ -68,62 +68,7 @@
       </widget>
      </item>
      <item>
-      <layout class="QVBoxLayout" name="qvl_periods">
-       <item>
-        <widget class="QTableWidget" name="qtw_periods">
-         <column>
-          <property name="text">
-           <string>Date</string>
-          </property>
-         </column>
-         <column>
-          <property name="text">
-           <string>Out</string>
-          </property>
-         </column>
-         <column>
-          <property name="text">
-           <string>In</string>
-          </property>
-         </column>
-         <column>
-          <property name="text">
-           <string>Sum</string>
-          </property>
-         </column>
-         <column>
-          <property name="text">
-           <string>Entries</string>
-          </property>
-         </column>
-         <column>
-          <property name="text">
-           <string>Min</string>
-          </property>
-         </column>
-         <column>
-          <property name="text">
-           <string>Max</string>
-          </property>
-         </column>
-         <column>
-          <property name="text">
-           <string>Median</string>
-          </property>
-         </column>
-         <column>
-          <property name="text">
-           <string>Avg</string>
-          </property>
-         </column>
-         <column>
-          <property name="text">
-           <string>Std</string>
-          </property>
-         </column>
-        </widget>
-       </item>
-      </layout>
+      <layout class="QVBoxLayout" name="qvl_periods"/>
      </item>
     </layout>
    </item>

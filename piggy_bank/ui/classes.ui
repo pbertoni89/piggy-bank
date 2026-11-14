@@ -59,7 +59,18 @@
       </widget>
      </item>
      <item>
-      <layout class="QVBoxLayout" name="qvl_classes"/>
+      <layout class="QVBoxLayout" name="qvl_classes" stretch="1,1">
+       <item>
+        <layout class="QHBoxLayout" name="qhl_tabs">
+         <item>
+          <widget class="QTabWidget" name="qtw_tabs"/>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="qhl_charts"/>
+       </item>
+      </layout>
      </item>
     </layout>
    </item>
