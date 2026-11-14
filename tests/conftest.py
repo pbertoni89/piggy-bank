@@ -7,9 +7,10 @@ import pandas as pd
 import pytest
 
 from piggy_bank import etica
-from piggy_bank.etica import COL_DATA, COL_MINUS, COL_PLUS, COL_DESCR, CUSTOM_CLASSES_CSV, RULE_COLUMNS
+from piggy_bank.etica import CUSTOM_CLASSES_CSV, RULE_COLUMNS, SOURCE_COLUMNS
 
-HEADER = [COL_DATA, COL_MINUS, COL_PLUS, COL_DESCR]
+# Source statements keep Banca Etica's Italian headers: 'Data contabile', 'Dare', 'Avere', 'Descrizione'
+SOURCE_HEADER = list(SOURCE_COLUMNS)
 
 
 @pytest.fixture
@@ -21,9 +22,9 @@ def data_dir(tmp_path, monkeypatch):
 
 @pytest.fixture
 def write_csv(data_dir):
-    """Writes rows (date, dare, avere, descrizione) as a CSV in DATA_DIR, None meaning an empty cell."""
+    """Writes rows (date, out, in, description) as a source statement CSV in DATA_DIR, None meaning an empty cell."""
     def _write(name: str, rows: list):
-        pd.DataFrame(rows, columns=HEADER).to_csv(data_dir / name, index=False)
+        pd.DataFrame(rows, columns=SOURCE_HEADER).to_csv(data_dir / name, index=False)
         return data_dir / name
     return _write
 

@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Piggy Bank is a personal finance analyser for Banca Etica ("Estratto conto Italia") bank statement exports. It has a PySide6 desktop GUI and also a headless/notebook path. Column names and some log messages are in Italian.
+Piggy Bank is a personal finance analyser for Banca Etica ("Estratto conto Italia") bank statement exports. It has a PySide6 desktop GUI and also a headless/notebook path. Banca Etica's exports have Italian column names; `load_data()` renames them to English on read, and everything after that is English.
 
 ## Commands
 
@@ -109,8 +109,8 @@ The data lives in `data/etica/` (`DATA_DIR` in `etica.py`). It is real personal 
 1. Converts each `*.xls` to `*.csv` (dropping `Valuta`, `Divisa`, `Causale`) and **deletes the `.xls`**.
 2. Loads every `*.csv` except `NOT_STATEMENTS` (`merged.csv`, `custom-classes.csv`, `blacklist.csv`). Files like `*.csv.bk` are ignored because they don't match the glob. Watch out for overlapping exports, e.g. `-2024.csv` + `-2024-bis.csv`.
 3. Concatenates them and drops exact duplicate rows. **Known, accepted limitation:** this also collapses genuinely distinct identical movements, e.g. two SEPA fees on the same day. The exports have no transaction ID, so there's no reliable way to tell those apart from overlapping exports. Don't try to "fix" it unless asked. `test_identical_rows_are_collapsed_known_limitation` pins this behaviour.
-4. Sorts by date with deterministic tiebreakers (`sort_by_data_contabile`) and rewrites `merged.csv` (output only, never read back).
-5. Rewrites noisy `Descrizione` fragments (the hardcoded `stripped_parts` list, e.g. → `<BONIF>`).
+4. Sorts by date with deterministic tiebreakers (`sort_by_date`) and rewrites `merged.csv` (output only, never read back).
+5. Rewrites noisy description fragments (the hardcoded `stripped_parts` list, e.g. → `<BONIF>`).
 
 It returns `df_merged`: the statement columns only, no classes.
 
@@ -121,19 +121,21 @@ It returns `df_merged`: the statement columns only, no classes.
 2. `cluster_auto(df, classes)`: fills the `None`s. **A no-op for now**; it will do text clustering (see `piggy_bank/text_clustering_guide.ipynb`), which is expensive, so it must never run during ledger filtering.
 3. Whatever is left is `CLASS_TODO` (`'todo'`).
 
-`custom-classes.csv` (`read_custom_classes()` → `ClassRule`s): header `Data contabile,Dare,Avere,Descrizione,Classe` (`RULE_COLUMNS`), then one rule per line, read with the `csv` module (quotes work).
-- Date: `*` (any) or `YYYY-MM-DD`. Dare/Avere: `*` (any), blank (the movement's must be blank) or a number (matched to the cent). Descrizione: `*` or blank (any), else a case-insensitive literal substring of the *cleaned* description. Classe: any non-blank text; each distinct text is a class, typos included (`loans` ≠ `loan`), by the user's choice.
+`custom-classes.csv` (`read_custom_classes()` → `ClassRule`s): header `Date,Out,In,Description,Class` (`RULE_COLUMNS`), then one rule per line, read with the `csv` module (quotes work).
+- Date: `*` (any) or `YYYY-MM-DD`. Out/In: `*` (any), blank (the movement's must be blank) or a number (matched to the cent). Description: `*` or blank (any), else a case-insensitive literal substring of the *cleaned* description. Class: any non-blank text; each distinct text is a class, typos included (`loans` ≠ `loan`), by the user's choice.
 - Rules apply in file order, each to every movement. First match wins: a later rule with a *different* class logs an error per movement and changes nothing; the same class is silent. A rule matching nothing logs a warning. A rule may match many movements.
 - `#` lines and blank lines are skipped. Malformed lines (field count, date, amount, blank class) are logged and skipped; a wrong or missing header raises `ValueError`, so a bad import via the File menu rolls back.
 - `blacklist.csv` (the old 0/1 `Blacklisted` flag) and `INV_REGEX` (the old `Investment` flag) are gone. The user's real `custom-classes.csv` was migrated from both: exact blacklist rows got the placeholder class `blacklist`, the `TIME DEPOSIT` wildcards and the `FONDI|PROVENTI|CEDOLE|DEPOSIT` terms got `investment`. `blacklist.csv` stays in `data/` as an archive, never read.
 
-Column constants (use these, not string literals): `COL_DATA`='Data contabile', `COL_MINUS`='Dare' (outflows, negative), `COL_PLUS`='Avere' (inflows), `COL_DESCR`='Descrizione', `COL_CLASS`='Class' (the column of `df_clustered`), `COL_RULE_CLASS`='Classe' (the rules file's), `COL_RUN_TOT`='Running Total', `COL_IMP`='Importo', `COL_OLS`='OLS'. Amount = `Avere.fillna(0) + Dare.fillna(0)`.
+Column constants (use these, not string literals): `COL_DATE`='Date', `COL_OUT`='Out' (outflows, negative), `COL_IN`='In' (inflows), `COL_DESCR`='Description', `COL_CLASS`='Class' (the column of `df_clustered`, and of the rules file), `COL_RUN_TOT`='Running Total', `COL_AMOUNT`='Amount', `COL_OLS`='OLS'. Amount = `In.fillna(0) + Out.fillna(0)`.
+
+**Italian names live only in source data.** The `.xls` exports and the `.csv` converted from them keep Banca Etica's headers (`Data contabile`, `Dare`, `Avere`, `Descrizione`; `Valuta`, `Divisa`, `Causale` are dropped, `SOURCE_DROPPED`). `load_data()` renames them with `SOURCE_COLUMNS` right after reading each CSV, so `merged.csv`, the rules file, every DataFrame, identifier and GUI label is English. The ledger header comes from the DataFrame columns and must match `ledger.ui` (`test_ledger_header_is_english`). Tests write statements with the Italian headers (`write_csv`, the fake `read_excel`).
 
 Class filtering: the GUI keeps a row unless its class is unchecked (`QW_FilterTools.excluded_classes()`); the headless side uses `apply_classes(df, exclude)`, the same rule. `sorted_classes()` is the display order (alphabetical, `todo` last).
 
 ## Architecture
 
-- `etica.py`: pure pandas/numpy logic (loading, `compute_importo`, `compute_ols` linear fit of the running total vs date ordinal, `compute_candlesticks` OHLC per period, `compute_period_stats`) plus matplotlib/plotly helpers for the notebook. It has no Qt imports, so keep it that way.
+- `etica.py`: pure pandas/numpy logic (loading, `compute_running_total`, `compute_ols` linear fit of the running total vs date ordinal, `compute_candlesticks` OHLC per period, `compute_period_stats`) plus matplotlib/plotly helpers for the notebook. It has no Qt imports, so keep it that way.
   - Time frames are `TF_WEEKLY`/`TF_MONTHLY`/`TF_YEARLY` (the combo box texts), mapped by `TIMEFRAMES` to pandas periods. `period_start()` is the single bucketing rule: weeks start on Monday, months on the 1st, years on January 1st. Candlesticks and the periods table both use it; don't use `resample('ME'/'W')`, which labels periods by their end.
   - `AggrStats` (non-Qt) computes entries/min/max/sum/median/avg/std of a list of amounts and formats them (`text()`, static `format()`). `FIELDS` is the order, `SIGNED` the fields coloured green/red. Both `QW_AggrStats` and `QW_ClassesPeriods` use it.
 - `main_window.py`: `MainWindow` and `main()`. `get_data_source()` calls `cluster_merged(load_data())`, adds the running total, checks the required columns, and formats dates as `YYYY-MM-DD` strings.

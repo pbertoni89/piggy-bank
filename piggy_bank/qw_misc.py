@@ -23,7 +23,7 @@ from piggy_bank.ui.plots_lines_rc import Ui_PlotsLines
 from piggy_bank.ui.plots_stats_rc import Ui_PlotsStats
 from piggy_bank.ui.classes_periods_rc import Ui_ClassesPeriods
 from piggy_bank.aggr_stats import signed_color
-from piggy_bank.etica import (COL_DATA, COL_MINUS, COL_PLUS, COL_PERIOD, TF_WEEKLY, TF_MONTHLY, TF_YEARLY,
+from piggy_bank.etica import (COL_DATE, COL_OUT, COL_IN, COL_PERIOD, TF_WEEKLY, TF_MONTHLY, TF_YEARLY,
                               AggrStats, compute_period_stats)
 
 
@@ -224,7 +224,7 @@ class QW_ClassesPeriods(QWidget, Ui_ClassesPeriods):
     name capitalised ('Sum', 'Entries', ...). Unknown headers raise at startup.
     """
     PERIOD_FORMATS = {TF_WEEKLY: '%Y-%m-%d', TF_MONTHLY: '%Y-%m', TF_YEARLY: '%Y'}
-    __HEADER_KEYS = {'Date': COL_PERIOD, 'Out': COL_MINUS, 'In': COL_PLUS}
+    __HEADER_KEYS = {'Date': COL_PERIOD, 'Out': COL_OUT, 'In': COL_IN}
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -238,7 +238,7 @@ class QW_ClassesPeriods(QWidget, Ui_ClassesPeriods):
                 raise ValueError(f"qtw_periods: unknown column header {text!r}")
             self.__columns.append(key)
 
-        self.__df = pd.DataFrame(columns=[COL_DATA, COL_MINUS, COL_PLUS])
+        self.__df = pd.DataFrame(columns=[COL_DATE, COL_OUT, COL_IN])
         self.qtw_periods.setSortingEnabled(True)
         # Newest period first, like the ledger. A sort chosen by the user is kept across refreshes.
         self.qtw_periods.sortItems(self.__columns.index(COL_PERIOD), Qt.SortOrder.DescendingOrder)
@@ -248,7 +248,7 @@ class QW_ClassesPeriods(QWidget, Ui_ClassesPeriods):
         return self.qcb_periods_time.currentText()
 
     def update_periods(self, df: pd.DataFrame):
-        """Stores df (the visible ledger rows: COL_DATA, COL_MINUS, COL_PLUS) and refreshes the table."""
+        """Stores df (the visible ledger rows: COL_DATE, COL_OUT, COL_IN) and refreshes the table."""
         self.__df = df
         self._populate()
 
@@ -268,7 +268,7 @@ class QW_ClassesPeriods(QWidget, Ui_ClassesPeriods):
             for col_idx, key in enumerate(self.__columns):
                 if key == COL_PERIOD:
                     item = QTableWidgetItem(row[key].strftime(fmt))
-                elif key in (COL_MINUS, COL_PLUS):
+                elif key in (COL_OUT, COL_IN):
                     item = NumericTableWidgetItem(f"{row[key]:.0f}")
                 else:
                     item = NumericTableWidgetItem(AggrStats.format(key, row[key]))

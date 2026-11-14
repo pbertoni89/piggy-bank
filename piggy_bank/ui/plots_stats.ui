@@ -25,12 +25,12 @@
         <item>
          <widget class="QLabel" name="label_2">
           <property name="text">
-           <string>Import</string>
+           <string>Amount</string>
           </property>
          </widget>
         </item>
         <item>
-         <widget class="QComboBox" name="qcb_plots_histograms_import">
+         <widget class="QComboBox" name="qcb_plots_histograms_amount">
           <property name="currentText">
            <string>10</string>
           </property>
@@ -112,7 +112,7 @@
       </widget>
      </item>
      <item>
-      <layout class="QVBoxLayout" name="ql_histograms_import"/>
+      <layout class="QVBoxLayout" name="ql_histograms_amount"/>
      </item>
      <item>
       <layout class="QVBoxLayout" name="ql_histograms_time"/>

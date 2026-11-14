@@ -27,16 +27,21 @@ def init_logging(also_time: bool, level=logging.DEBUG, coloured: bool = True) ->
                             datefmt='%H:%M:%S',
                             level=level)
 
-# Constants
-COL_DATA = 'Data contabile'
+# Columns. Banca Etica's Italian names only exist in the source statements (*.xls and the *.csv converted
+# from them): load_data() renames them (SOURCE_COLUMNS), and everything after it, merged.csv included, is English.
+COL_DATE = 'Date'
+COL_OUT = 'Out'   # outflows, negative
+COL_IN = 'In'     # inflows
+COL_DESCR = 'Description'
+COL_AMOUNT = 'Amount'  # In + Out
 COL_RUN_TOT = 'Running Total'
 COL_GRN_RUN_TOT = 'Grand Running Total'
-COL_PLUS = 'Avere'
-COL_MINUS = 'Dare'
-COL_IMP = 'Importo'
-COL_DESCR = 'Descrizione'
 COL_CLASS = 'Class'  # appended by cluster_merged(), never in merged.csv
 COL_OLS = 'OLS'
+
+# Source statement columns -> ours
+SOURCE_COLUMNS = {'Data contabile': COL_DATE, 'Dare': COL_OUT, 'Avere': COL_IN, 'Descrizione': COL_DESCR}
+SOURCE_DROPPED = ['Valuta', 'Divisa', 'Causale']  # dropped when converting *.xls to *.csv
 
 FMT_DT = '%Y%m%d'
 FMT_DT_CSV = '%Y-%m-%d'  # Format used in CSV files for dates
@@ -52,9 +57,8 @@ CUSTOM_CLASSES_CSV = 'custom-classes.csv'  # rules of cluster_custom()
 BLACKLIST_CSV = 'blacklist.csv'            # archive only, superseded by CUSTOM_CLASSES_CSV
 NOT_STATEMENTS = {MERGED_CSV, CUSTOM_CLASSES_CSV, BLACKLIST_CSV}
 
-# Custom classes rules (CUSTOM_CLASSES_CSV): the statement columns plus the class name
-COL_RULE_CLASS = 'Classe'
-RULE_COLUMNS = [COL_DATA, COL_MINUS, COL_PLUS, COL_DESCR, COL_RULE_CLASS]
+# Custom classes rules (CUSTOM_CLASSES_CSV): our statement columns plus the class name
+RULE_COLUMNS = [COL_DATE, COL_OUT, COL_IN, COL_DESCR, COL_CLASS]
 RULE_ANY = '*'       # matches any value
 RULE_COMMENT = '#'   # a line starting with it is ignored
 CLASS_TODO = 'todo'  # movements no custom rule (nor, later, cluster_auto) classified
@@ -73,7 +77,7 @@ def load_data() -> pd.DataFrame:
         try:
             df_xls = pd.read_excel(xls_path)
             # Drop unnecessary columns if they exist, mimicking old behaviour
-            df_xls = df_xls.drop(columns=['Valuta', 'Divisa', 'Causale'], errors='ignore')
+            df_xls = df_xls.drop(columns=SOURCE_DROPPED, errors='ignore')
 
             csv_path = xls_path.with_suffix('.csv')
             df_xls.to_csv(csv_path, index=False)
@@ -89,9 +93,10 @@ def load_data() -> pd.DataFrame:
     dfs_list = []
     for csv_path in csv_files:
         try:
-            df_csv = pd.read_csv(csv_path)
-            if COL_DATA in df_csv.columns:
-                df_csv[COL_DATA] = pd.to_datetime(df_csv[COL_DATA], errors='coerce')
+            # Source statements keep Banca Etica's Italian headers, rename them right away
+            df_csv = pd.read_csv(csv_path).rename(columns=SOURCE_COLUMNS)
+            if COL_DATE in df_csv.columns:
+                df_csv[COL_DATE] = pd.to_datetime(df_csv[COL_DATE], errors='coerce')
             dfs_list.append(df_csv)
             _lg.info(f"Loaded {csv_path.name} into DataFrame with {len(df_csv)} rows")
         except Exception as e:
@@ -114,14 +119,14 @@ def load_data() -> pd.DataFrame:
             _lg.warning("FIXME this will also remove e.g. two SEPA commissions from the same day !!!")  # FIXME
 
         df_merged = df_merged.drop_duplicates(ignore_index=True)
-        df_merged = sort_by_data_contabile(df_merged)
+        df_merged = sort_by_date(df_merged)
 
     # 4) Rewrite merged.csv as the dumping of df_merged
     out_csv_path = DATA_DIR / MERGED_CSV
     df_merged.to_csv(out_csv_path, index=False)
     _lg.debug(f"Dumped merged data ({len(df_merged)} rows) to {out_csv_path.name}")
 
-    # 5) Strip away noisy text in Descrizione. TODO put in a separate config file for easier maintenance
+    # 5) Strip away noisy text in the description. TODO put in a separate config file for easier maintenance
     stripped_parts = [("CARTA N. 416363******7346 - CIRCUITO VISA", ""),
                       ("Pagamenti paesi UE DEL", ""),
                       ("ADDEBITO DIRETTO CORE RCUR Prg.Car.:", ""),
@@ -146,11 +151,11 @@ class ClassRule:
     cls: str
 
     def mask(self, df: pd.DataFrame) -> pd.Series:
-        """Which rows of df (COL_DATA as datetime) the rule matches."""
+        """Which rows of df (COL_DATE as datetime) the rule matches."""
         keep = pd.Series(True, index=df.index)
         if self.date is not None:
-            keep &= pd.to_datetime(df[COL_DATA], errors='coerce').dt.normalize() == self.date
-        for col, amount in ((COL_MINUS, self.minus), (COL_PLUS, self.plus)):
+            keep &= pd.to_datetime(df[COL_DATE], errors='coerce').dt.normalize() == self.date
+        for col, amount in ((COL_OUT, self.minus), (COL_IN, self.plus)):
             if amount is None:
                 continue
             values = pd.to_numeric(df[col], errors='coerce')
@@ -175,10 +180,10 @@ def read_custom_classes(path: Path) -> list:
     """Parses a custom classes file into ClassRules, in file order.
 
     The first line must be the header RULE_COLUMNS. Then, per field:
-    - Data contabile: RULE_ANY or a YYYY-MM-DD date.
-    - Dare, Avere: RULE_ANY, a number (matched to the cent), or blank, meaning the movement's one must be blank.
-    - Descrizione: RULE_ANY, blank (both match anything) or a case-insensitive substring.
-    - Classe: any non-blank text; every distinct text is a class, typos included.
+    - Date: RULE_ANY or a YYYY-MM-DD date.
+    - Out, In: RULE_ANY, a number (matched to the cent), or blank, meaning the movement's one must be blank.
+    - Description: RULE_ANY, blank (both match anything) or a case-insensitive substring.
+    - Class: any non-blank text; every distinct text is a class, typos included.
     Blank lines and lines starting with RULE_COMMENT are ignored. A malformed line is logged and skipped,
     a wrong header raises ValueError."""
     rules = []
@@ -214,7 +219,7 @@ def _parse_rule(line_no: int, fields: list) -> ClassRule:
         try:
             date = pd.Timestamp(datetime.strptime(date_s, FMT_DT_CSV))
         except ValueError:
-            raise ValueError(f"{COL_DATA} must be {RULE_ANY} or a YYYY-MM-DD date, not {date_s!r}") from None
+            raise ValueError(f"{COL_DATE} must be {RULE_ANY} or a YYYY-MM-DD date, not {date_s!r}") from None
 
     def amount(col, s):
         if s == RULE_ANY:
@@ -227,8 +232,8 @@ def _parse_rule(line_no: int, fields: list) -> ClassRule:
             raise ValueError(f"{col} must be {RULE_ANY}, blank or a number, not {s!r}") from None
 
     if not cls:
-        raise ValueError(f"{COL_RULE_CLASS} is blank")
-    return ClassRule(line=line_no, date=date, minus=amount(COL_MINUS, minus_s), plus=amount(COL_PLUS, plus_s),
+        raise ValueError(f"{COL_CLASS} is blank")
+    return ClassRule(line=line_no, date=date, minus=amount(COL_OUT, minus_s), plus=amount(COL_IN, plus_s),
                      descr=None if descr in ('', RULE_ANY) else descr, cls=cls)
 
 
@@ -257,8 +262,8 @@ def cluster_custom(df: pd.DataFrame, path: Path | None = None) -> pd.Series:
         for idx in df.index[taken & (classes != rule.cls)]:
             row = df.loc[idx]
             _lg.error(f"{path.name}: rule {rule} matches a movement already classified {classes[idx]!r} "
-                      f"by line {by_line[idx]}, keeping {classes[idx]!r}: {row[COL_DATA]:%Y-%m-%d}, "
-                      f"{row[COL_PLUS] if pd.notna(row[COL_PLUS]) else row[COL_MINUS]} EUR, {row[COL_DESCR]}")
+                      f"by line {by_line[idx]}, keeping {classes[idx]!r}: {row[COL_DATE]:%Y-%m-%d}, "
+                      f"{row[COL_IN] if pd.notna(row[COL_IN]) else row[COL_OUT]} EUR, {row[COL_DESCR]}")
         new = mask & classes.isna()
         classes[new] = rule.cls
         by_line[new] = rule.line
@@ -289,54 +294,54 @@ def sorted_classes(classes) -> list:
     return sorted(set(classes), key=lambda c: (c == CLASS_TODO, c))
 
 
-def sort_by_data_contabile(df: pd.DataFrame) -> pd.DataFrame:
-    """Sorts the DataFrame by 'Data contabile' in ascending order.
+def sort_by_date(df: pd.DataFrame) -> pd.DataFrame:
+    """Sorts the DataFrame by date in ascending order.
 
-    Secondary sort keys (COL_MINUS, COL_PLUS, COL_DESCR) are used as tiebreakers
+    Secondary sort keys (COL_OUT, COL_IN, COL_DESCR) are used as tiebreakers
     to guarantee a fully deterministic order for same-date rows, regardless of the
     order in which source files are loaded (filesystem glob order is non-deterministic).
     """
     try:
         df_sorted = df.copy()
-        df_sorted[COL_DATA] = pd.to_datetime(df_sorted[COL_DATA], errors='coerce')
-        sort_cols = [COL_DATA]
-        for col in [COL_MINUS, COL_PLUS, COL_DESCR]:
+        df_sorted[COL_DATE] = pd.to_datetime(df_sorted[COL_DATE], errors='coerce')
+        sort_cols = [COL_DATE]
+        for col in [COL_OUT, COL_IN, COL_DESCR]:
             if col in df_sorted.columns:
                 sort_cols.append(col)
         df_sorted = df_sorted.sort_values(sort_cols, ascending=True, na_position='last').reset_index(drop=True)
         return df_sorted
     except Exception as e:
-        _lg.error(f'Could not sort by "{COL_DATA}": {e}')
+        _lg.error(f'Could not sort by "{COL_DATE}": {e}')
         return df
 
 
-def compute_importo(df: pd.DataFrame) -> pd.DataFrame:
-    """Computes 'Importo' (Credit + Debit) and cumulative 'Saldo'."""
+def compute_running_total(df: pd.DataFrame) -> pd.DataFrame:
+    """Computes the running total (cumulative In + Out). The amount column is only temporary."""
     df = df.copy()
-    df[COL_IMP] = df[COL_PLUS].fillna(0) + df[COL_MINUS].fillna(0)
-    df[COL_RUN_TOT] = df[COL_IMP].cumsum()
-    df = df.drop(columns=[COL_IMP], errors='ignore')
+    df[COL_AMOUNT] = df[COL_IN].fillna(0) + df[COL_OUT].fillna(0)
+    df[COL_RUN_TOT] = df[COL_AMOUNT].cumsum()
+    df = df.drop(columns=[COL_AMOUNT], errors='ignore')
     return df
 
 
 def compute_ols(df: pd.DataFrame) -> Tuple[pd.DataFrame, float, float]:
-    """Computes OLS fit of 'Saldo' vs Time."""
+    """Computes OLS fit of the running total vs time."""
     df = df.copy()
-    df[COL_DATA] = pd.to_datetime(df[COL_DATA], errors='coerce')
-    df_valid = df.dropna(subset=[COL_DATA, COL_RUN_TOT])
+    df[COL_DATE] = pd.to_datetime(df[COL_DATE], errors='coerce')
+    df_valid = df.dropna(subset=[COL_DATE, COL_RUN_TOT])
 
     if len(df_valid) < 2:
         _lg.warning('Not enough valid data for OLS fit.')
         df[COL_OLS] = float('nan')
         return df, float('nan'), float('nan')
 
-    x = df_valid[COL_DATA].map(lambda d: d.toordinal()).values.astype(float)
+    x = df_valid[COL_DATE].map(lambda d: d.toordinal()).values.astype(float)
     y = df_valid[COL_RUN_TOT].values
     try:
         m, q = np.polyfit(x, y, 1)
         ols_vals = np.full(len(df), float('nan'))
-        mask = df[COL_DATA].notna()
-        x_all = df.loc[mask, COL_DATA].map(lambda d: d.toordinal()).values.astype(float)
+        mask = df[COL_DATE].notna()
+        x_all = df.loc[mask, COL_DATE].map(lambda d: d.toordinal()).values.astype(float)
         ols_vals[mask] = m * x_all + q
         df[COL_OLS] = ols_vals
         return df, m, q
@@ -346,7 +351,7 @@ def compute_ols(df: pd.DataFrame) -> Tuple[pd.DataFrame, float, float]:
         return df, float('nan'), float('nan')
 
 
-def plot_saldo_ols(views: dict) -> None:
+def plot_running_total_ols(views: dict) -> None:
     """Plots running total and OLS fit over time of every view {label: df} on the same graph."""
     fig, ax1 = plt.subplots(figsize=(12, 6))
     colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
@@ -355,8 +360,8 @@ def plot_saldo_ols(views: dict) -> None:
     for i, (lbl, df) in enumerate(views.items()):
         df, m, q = compute_ols(df)
         color = colors[i % len(colors)]
-        ax1.plot(df[COL_DATA], df[COL_RUN_TOT], label=lbl, color=color)
-        ax1.plot(df[COL_DATA], df[COL_OLS], label=f'OLS {lbl}', color=color, linestyle='--')
+        ax1.plot(df[COL_DATE], df[COL_RUN_TOT], label=lbl, color=color)
+        ax1.plot(df[COL_DATE], df[COL_OLS], label=f'OLS {lbl}', color=color, linestyle='--')
         fits.append(f'{lbl}: y = {m:.2f}x + {q:.2f}')
 
     ax1.set_ylabel(COL_RUN_TOT)
@@ -373,18 +378,18 @@ def plot_saldo_ols(views: dict) -> None:
     plt.show()
 
 
-def plot_saldo_ols_interactive(views: dict) -> None:
+def plot_running_total_ols_interactive(views: dict) -> None:
     """Interactive Plotly plot of every view {label: df} with its OLS line, zoomable and hoverable."""
     fig = go.Figure()
 
     for lbl, df in views.items():
         df, m, _ = compute_ols(df)
-        fig.add_trace(go.Scatter(x=df[COL_DATA], y=df[COL_RUN_TOT], mode='lines', name=lbl, line=dict(width=2)))
-        fig.add_trace(go.Scatter(x=df[COL_DATA], y=df[COL_OLS], mode='lines', name=f'OLS {lbl} (m = {m:.2f})',
+        fig.add_trace(go.Scatter(x=df[COL_DATE], y=df[COL_RUN_TOT], mode='lines', name=lbl, line=dict(width=2)))
+        fig.add_trace(go.Scatter(x=df[COL_DATE], y=df[COL_OLS], mode='lines', name=f'OLS {lbl} (m = {m:.2f})',
                                  line=dict(width=2, dash='dash')))
 
     fig.update_layout(title='Running Total and OLS Fit (Interactive, Zoomable & Hoverable)',
-                      xaxis_title=COL_DATA,
+                      xaxis_title=COL_DATE,
                       yaxis_title=COL_RUN_TOT,
                       hovermode='x unified',
                       template='plotly_white',
@@ -409,16 +414,16 @@ def compute_candlesticks(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
     """OHLC candlesticks of the running total, one per period (TF_WEEKLY/TF_MONTHLY/TF_YEARLY).
     'Date' is the period's first day. Periods with no rows are left out."""
     df_copy = df.copy()
-    df_copy[COL_DATA] = pd.to_datetime(df_copy[COL_DATA], errors='coerce')
-    df_copy = df_copy.dropna(subset=[COL_DATA, COL_RUN_TOT])
+    df_copy[COL_DATE] = pd.to_datetime(df_copy[COL_DATE], errors='coerce')
+    df_copy = df_copy.dropna(subset=[COL_DATE, COL_RUN_TOT])
 
     if timeframe not in TIMEFRAMES:
         _lg.error(f"Unknown candlestick timeframe '{timeframe}', expected one of {list(TIMEFRAMES)}")
         return pd.DataFrame()
 
     # Stable sort, so 'first'/'last' are the chronological open/close even on unsorted input
-    df_copy = df_copy.sort_values(COL_DATA, kind='stable')
-    rv = df_copy.groupby(period_start(df_copy[COL_DATA], timeframe))[COL_RUN_TOT].agg(
+    df_copy = df_copy.sort_values(COL_DATE, kind='stable')
+    rv = df_copy.groupby(period_start(df_copy[COL_DATE], timeframe))[COL_RUN_TOT].agg(
         Open='first',
         High='max',
         Low='min',
@@ -467,19 +472,19 @@ COL_PERIOD = 'Date'
 
 def compute_period_stats(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
     """One row per period with rows (TF_WEEKLY/TF_MONTHLY/TF_YEARLY), oldest first.
-    Columns: COL_PERIOD (the period's first day), COL_MINUS (sum of outflows), COL_PLUS (sum of inflows),
-    then the AggrStats FIELDS over the amounts (Dare + Avere) of that period."""
-    columns = [COL_PERIOD, COL_MINUS, COL_PLUS, *AggrStats.FIELDS]
+    Columns: COL_PERIOD (the period's first day), COL_OUT (sum of outflows), COL_IN (sum of inflows),
+    then the AggrStats FIELDS over the amounts (In + Out) of that period."""
+    columns = [COL_PERIOD, COL_OUT, COL_IN, *AggrStats.FIELDS]
     if df.empty:
         return pd.DataFrame(columns=columns)
-    out = pd.to_numeric(df[COL_MINUS], errors='coerce').fillna(0)
-    inc = pd.to_numeric(df[COL_PLUS], errors='coerce').fillna(0)
-    tmp = pd.DataFrame({COL_PERIOD: period_start(df[COL_DATA], timeframe),
-                        COL_MINUS: out, COL_PLUS: inc, COL_IMP: out + inc})
+    out = pd.to_numeric(df[COL_OUT], errors='coerce').fillna(0)
+    inc = pd.to_numeric(df[COL_IN], errors='coerce').fillna(0)
+    tmp = pd.DataFrame({COL_PERIOD: period_start(df[COL_DATE], timeframe),
+                        COL_OUT: out, COL_IN: inc, COL_AMOUNT: out + inc})
     rows = []
     for start, grp in tmp.groupby(COL_PERIOD, sort=True):
-        st = AggrStats(grp[COL_IMP])
-        rows.append({COL_PERIOD: start, COL_MINUS: grp[COL_MINUS].sum(), COL_PLUS: grp[COL_PLUS].sum(),
+        st = AggrStats(grp[COL_AMOUNT])
+        rows.append({COL_PERIOD: start, COL_OUT: grp[COL_OUT].sum(), COL_IN: grp[COL_IN].sum(),
                      **{f: getattr(st, f) for f in AggrStats.FIELDS}})
     return pd.DataFrame(rows, columns=columns)
 
@@ -508,7 +513,7 @@ def plot_candlestick_interactive(df: pd.DataFrame, lbl: str) -> None:
                                          high=df['High'],
                                          low=df['Low'],
                                          close=df['Close'])])
-    fig.update_layout(title=f'Monthly Candlesticks (Interactive) for {lbl}', xaxis_title='Date', yaxis_title='Saldo')
+    fig.update_layout(title=f'Monthly Candlesticks (Interactive) for {lbl}', xaxis_title='Date', yaxis_title=COL_RUN_TOT)
     fig.show()
 
 
@@ -524,7 +529,7 @@ def view_label(exclude=()) -> str:
 def build_view(df: pd.DataFrame, exclude=()) -> Tuple[pd.DataFrame, float, float]:
     """Filters df by class, then computes its own running total and OLS fit. Returns (view, m, q)."""
     rv = apply_classes(df, exclude).drop(columns=[COL_RUN_TOT, COL_OLS], errors='ignore')
-    rv = compute_importo(rv)
+    rv = compute_running_total(rv)
     return compute_ols(rv)
 
 
@@ -543,7 +548,7 @@ def plot_view_bars(df: pd.DataFrame, lbl: str) -> None:
     """Plots the running total of a view as bars over time."""
     if not df.empty:
         fig, ax = plt.subplots(figsize=(12, 3))
-        ax.bar(df[COL_DATA], df[COL_RUN_TOT], color='purple')
+        ax.bar(df[COL_DATE], df[COL_RUN_TOT], color='purple')
         ax.set_ylabel(COL_RUN_TOT)
         ax.set_title(lbl)
         ax.grid(True)

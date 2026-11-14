@@ -59,8 +59,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.plot_line = WebEnginePlotManager(self)
         self.ui_plots_lines.ql_line.addWidget(self.plot_line)
 
-        self.plot_hist_import = WebEnginePlotManager(self)
-        self.ui_plots_stats.ql_histograms_import.addWidget(self.plot_hist_import)
+        self.plot_hist_amount = WebEnginePlotManager(self)
+        self.ui_plots_stats.ql_histograms_amount.addWidget(self.plot_hist_amount)
 
         self.plot_hist_time = WebEnginePlotManager(self)
         self.ui_plots_stats.ql_histograms_time.addWidget(self.plot_hist_time)
@@ -78,7 +78,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.ft.filters_updated.connect(self._apply_filters)
 
         # Connect new ComboBox controls directly to plot update function
-        self.ui_plots_stats.qcb_plots_histograms_import.currentIndexChanged.connect(lambda _: self._update_plot())
+        self.ui_plots_stats.qcb_plots_histograms_amount.currentIndexChanged.connect(lambda _: self._update_plot())
         self.ui_plots_stats.qcb_plots_histograms_time.currentIndexChanged.connect(lambda _: self._update_plot())
         self.ui_plots_lines.qcb_candles_time.currentIndexChanged.connect(lambda _: self._update_plot())
 
@@ -96,12 +96,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def _show_data(self, df: pd.DataFrame):
         """(Re)fills the ledger with df and re-applies the current filters. Used at startup and after every import."""
         # Cache column indices dynamically to avoid hardcoding
-        self.__idx_data = df.columns.get_loc(COL_DATA)
-        self.__idx_out = df.columns.get_loc(COL_MINUS)
-        self.__idx_in = df.columns.get_loc(COL_PLUS)
+        self.__idx_data = df.columns.get_loc(COL_DATE)
+        self.__idx_out = df.columns.get_loc(COL_OUT)
+        self.__idx_in = df.columns.get_loc(COL_IN)
         self.__idx_desc = df.columns.get_loc(COL_DESCR)
         self.__idx_class = df.columns.get_loc(COL_CLASS)
-        self.__idx_saldo = df.columns.get_loc(COL_RUN_TOT)
+        self.__idx_run_tot = df.columns.get_loc(COL_RUN_TOT)
 
         self._populate_table(df)
 
@@ -112,11 +112,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         header.setSectionResizeMode(self.__idx_in, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(self.__idx_desc, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(self.__idx_class, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(self.__idx_saldo, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(self.__idx_run_tot, QHeaderView.ResizeMode.Fixed)
 
         self.ui_ledger.qtw_ledger.setColumnWidth(self.__idx_out, 100)
         self.ui_ledger.qtw_ledger.setColumnWidth(self.__idx_in, 100)
-        self.ui_ledger.qtw_ledger.setColumnWidth(self.__idx_saldo, 100)
+        self.ui_ledger.qtw_ledger.setColumnWidth(self.__idx_run_tot, 100)
 
         # Date and amount ranges, and the class checkboxes, follow the (possibly new) data
         self.ft.setup_dates(df)
@@ -125,7 +125,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         # Enable sorting after population
         self.ui_ledger.qtw_ledger.setSortingEnabled(True)
-        # Force initial sorting by 'Data contabile' descending
+        # Force initial sorting by date descending
         self.ui_ledger.qtw_ledger.sortItems(self.__idx_data, Qt.SortOrder.DescendingOrder)
 
         logging.debug("Applying filters to qtw_ledger...")
@@ -215,14 +215,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         for row_idx, row in enumerate(df.itertuples(index=False)):
             for col_idx, value in enumerate(row):
-                # The running saldo cells will be populated dynamically in _apply_filters
-                if col_idx == self.__idx_saldo:
+                # The running total cells will be populated dynamically in _apply_filters
+                if col_idx == self.__idx_run_tot:
                     val_str = "0.00"
                 else:
                     val_str = "" if pd.isna(value) else str(value)
 
-                # Use numeric table items for Dare/Avere to ensure proper numeric sorting
-                if col_idx in (self.__idx_out, self.__idx_in, self.__idx_saldo):
+                # Use numeric table items for Out/In to ensure proper numeric sorting
+                if col_idx in (self.__idx_out, self.__idx_in, self.__idx_run_tot):
                     item = NumericTableWidgetItem(val_str)
                 else:
                     item = QTableWidgetItem(val_str)
@@ -257,7 +257,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         plot_data = []
         visible_rows_info = []
-        running_saldo = 0.0
+        running_total = 0.0
 
         for row_idx in range(self.ui_ledger.qtw_ledger.rowCount()):
             date_item = self.ui_ledger.qtw_ledger.item(row_idx, self.__idx_data)
@@ -318,20 +318,20 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             # Passed all filters -> Make visible & Collect dynamic data
             self.ui_ledger.qtw_ledger.setRowHidden(row_idx, False)
 
-            # Recalculate dynamic Importo for running totals and plotting
+            # Recalculate the amount for running totals and plotting
             try: o_val = float(out_val_str)
             except ValueError: o_val = 0.0
 
             try: i_val = float(in_val_str)
             except ValueError: i_val = 0.0
 
-            imp_val = o_val + i_val
+            amount = o_val + i_val
 
             # Store visible row info to compute chronological running sum safely
             visible_rows_info.append({
                 'row_idx': row_idx,
                 'date_val': date_val,
-                'imp_val': imp_val,
+                'amount': amount,
                 'o_val': o_val,
                 'i_val': i_val
             })
@@ -344,25 +344,25 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 try: visible_in.append(float(in_val_str))
                 except ValueError: pass
 
-            visible_all.append(imp_val)
+            visible_all.append(amount)
 
         # Sort the passed rows chronologically to ensure accurate Running Total
         visible_rows_info.sort(key=lambda x: x['date_val'])
 
         for row_info in visible_rows_info:
-            running_saldo += row_info['imp_val']
+            running_total += row_info['amount']
 
             # Update the Table UI Running Total Column Cell mapping back to the correct row_idx
-            saldo_item = self.ui_ledger.qtw_ledger.item(row_info['row_idx'], self.__idx_saldo)
-            if saldo_item:
-                saldo_item.setText(f"{running_saldo:.2f}")
+            run_tot_item = self.ui_ledger.qtw_ledger.item(row_info['row_idx'], self.__idx_run_tot)
+            if run_tot_item:
+                run_tot_item.setText(f"{running_total:.2f}")
 
             plot_data.append({
-                COL_DATA: row_info['date_val'],
-                COL_IMP: row_info['imp_val'],
-                COL_RUN_TOT: running_saldo,
-                COL_MINUS: row_info['o_val'],
-                COL_PLUS: row_info['i_val']
+                COL_DATE: row_info['date_val'],
+                COL_AMOUNT: row_info['amount'],
+                COL_RUN_TOT: running_total,
+                COL_OUT: row_info['o_val'],
+                COL_IN: row_info['i_val']
             })
 
         # Update statistical widgets
@@ -383,7 +383,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def _update_plot(self):
         if self.df_plot.empty:
             self.plot_line.render_figure(None)
-            self.plot_hist_import.render_figure(None)
+            self.plot_hist_amount.render_figure(None)
             self.plot_hist_time.render_figure(None)
             self.plot_candles.render_figure(None)
             self.plot_box_out.render_figure(None)
@@ -394,16 +394,16 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         fig_main = go.Figure()
         df_plot_ols, m, q = compute_ols(self.df_plot)
 
-        fig_main.add_trace(go.Scatter(x=df_plot_ols[COL_DATA], y=df_plot_ols[COL_RUN_TOT],
+        fig_main.add_trace(go.Scatter(x=df_plot_ols[COL_DATE], y=df_plot_ols[COL_RUN_TOT],
                                       mode='lines', name='Running Total',
                                       line=dict(color='#1f77b4', width=2)))
 
-        fig_main.add_trace(go.Scatter(x=df_plot_ols[COL_DATA], y=df_plot_ols[COL_IMP],
-                                      mode='lines', name='Importo (Row)',
+        fig_main.add_trace(go.Scatter(x=df_plot_ols[COL_DATE], y=df_plot_ols[COL_AMOUNT],
+                                      mode='lines', name='Amount (Row)',
                                       line=dict(color='#2ca02c', width=1, dash='dot')))
 
         if COL_OLS in df_plot_ols.columns and not df_plot_ols[COL_OLS].isna().all():
-            fig_main.add_trace(go.Scatter(x=df_plot_ols[COL_DATA], y=df_plot_ols[COL_OLS],
+            fig_main.add_trace(go.Scatter(x=df_plot_ols[COL_DATE], y=df_plot_ols[COL_OLS],
                                           mode='lines', name=f'OLS Fit<br>m = {m:.2f}',
                                           line=dict(color='#ff7f0e', width=2, dash='dash')))
 
@@ -413,22 +413,22 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.plot_line.render_figure(fig_main)
 
         # 2. Import Histogram
-        import_bin_size_str = self.ui_plots_stats.qcb_plots_histograms_import.currentText()
-        import_bin_size = int(import_bin_size_str) if import_bin_size_str.isdigit() else 100
+        amount_bin_size_str = self.ui_plots_stats.qcb_plots_histograms_amount.currentText()
+        amount_bin_size = int(amount_bin_size_str) if amount_bin_size_str.isdigit() else 100
 
-        fig_hist_import = go.Figure()
-        fig_hist_import.add_trace(go.Histogram(
-            x=self.df_plot[COL_IMP],
-            xbins=dict(size=import_bin_size),
-            name='Importo Freq',
+        fig_hist_amount = go.Figure()
+        fig_hist_amount.add_trace(go.Histogram(
+            x=self.df_plot[COL_AMOUNT],
+            xbins=dict(size=amount_bin_size),
+            name='Amount Freq',
             marker_color='#1f77b4'
         ))
-        fig_hist_import.update_layout(title=f'Importo Frequency (Bin = {import_bin_size})', xaxis_title='Importo', yaxis_title='Count', bargap=0.1)
-        self.plot_hist_import.render_figure(fig_hist_import)
+        fig_hist_amount.update_layout(title=f'Amount Frequency (Bin = {amount_bin_size})', xaxis_title=COL_AMOUNT, yaxis_title='Count', bargap=0.1)
+        self.plot_hist_amount.render_figure(fig_hist_amount)
 
         # 3. Time Histogram (Periodic/Seasonal Binning)
         time_bin_str = self.ui_plots_stats.qcb_plots_histograms_time.currentText()
-        dates_dt = pd.to_datetime(self.df_plot[COL_DATA])
+        dates_dt = pd.to_datetime(self.df_plot[COL_DATE])
         fig_hist_time = go.Figure()
 
         if time_bin_str == "Weekly":
@@ -442,38 +442,38 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
             category_array = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
             fig_hist_time.add_trace(go.Histogram(
-                x=x_data, y=self.df_plot[COL_IMP], histfunc='sum',
-                name='Importo Sum', marker_color='#2ca02c'
+                x=x_data, y=self.df_plot[COL_AMOUNT], histfunc='sum',
+                name='Amount Sum', marker_color='#2ca02c'
             ))
             fig_hist_time.update_xaxes(categoryorder='array', categoryarray=category_array)
-            title_text = 'Importo Sum by Day of Week (Mon-Sun)'
+            title_text = 'Amount Sum by Day of Week (Mon-Sun)'
             xaxis_title = 'Day of Week'
 
         elif time_bin_str == "Monthly":
             # Group every transaction by 31 days: 1 - 31
             x_data = dates_dt.dt.day
             fig_hist_time.add_trace(go.Histogram(
-                x=x_data, y=self.df_plot[COL_IMP], histfunc='sum',
-                name='Importo Sum', xbins=dict(start=0.5, end=31.5, size=1),
+                x=x_data, y=self.df_plot[COL_AMOUNT], histfunc='sum',
+                name='Amount Sum', xbins=dict(start=0.5, end=31.5, size=1),
                 marker_color='#2ca02c'
             ))
             fig_hist_time.update_xaxes(tickmode='linear', dtick=1)
-            title_text = 'Importo Sum by Day of Month (1-31)'
+            title_text = 'Amount Sum by Day of Month (1-31)'
             xaxis_title = 'Day of Month'
 
         else:
             # Group every transaction by 12 months: 1 - 12
             x_data = dates_dt.dt.month
             fig_hist_time.add_trace(go.Histogram(
-                x=x_data, y=self.df_plot[COL_IMP], histfunc='sum',
-                name='Importo Sum', xbins=dict(start=0.5, end=12.5, size=1),
+                x=x_data, y=self.df_plot[COL_AMOUNT], histfunc='sum',
+                name='Amount Sum', xbins=dict(start=0.5, end=12.5, size=1),
                 marker_color='#2ca02c'
             ))
             fig_hist_time.update_xaxes(tickmode='linear', dtick=1)
-            title_text = 'Importo Sum by Month of Year (1-12)'
+            title_text = 'Amount Sum by Month of Year (1-12)'
             xaxis_title = 'Month'
 
-        fig_hist_time.update_layout(title=title_text, xaxis_title=xaxis_title, yaxis_title='Sum of Importo', bargap=0.1)
+        fig_hist_time.update_layout(title=title_text, xaxis_title=xaxis_title, yaxis_title='Sum of Amount', bargap=0.1)
         self.plot_hist_time.render_figure(fig_hist_time)
 
         # 4. Candlesticks
@@ -491,12 +491,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         fig_candle.update_yaxes(minor=dict(dtick=500, showgrid=True))
         self.plot_candles.render_figure(fig_candle)
 
-        # 5. Box and Whiskers (Dare & Avere)
+        # 5. Box and Whiskers (Out & In)
         fig_box_out = go.Figure()
-        expenses_series = self.df_plot[self.df_plot[COL_MINUS] != 0][COL_MINUS]
+        expenses_series = self.df_plot[self.df_plot[COL_OUT] != 0][COL_OUT]
         fig_box_out.add_trace(go.Box(
             y=expenses_series,
-            name='Expenses (Dare)',
+            name='Expenses (Out)',
             marker_color='#d62728'
         ))
         fig_box_out.update_layout(
@@ -507,10 +507,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.plot_box_out.render_figure(fig_box_out)
 
         fig_box_in = go.Figure()
-        incomes_series = self.df_plot[self.df_plot[COL_PLUS] != 0][COL_PLUS]
+        incomes_series = self.df_plot[self.df_plot[COL_IN] != 0][COL_IN]
         fig_box_in.add_trace(go.Box(
             y=incomes_series,
-            name='Incomes (Avere)',
+            name='Incomes (In)',
             marker_color='#2ca02c'
         ))
         fig_box_in.update_layout(
@@ -527,10 +527,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         _df_all = cluster_merged(load_data())
 
         # Provide Running Total dynamically into DataFrame right from load stage
-        _df_all[COL_RUN_TOT] = (pd.to_numeric(_df_all[COL_PLUS], errors='coerce').fillna(0) + \
-                                pd.to_numeric(_df_all[COL_MINUS], errors='coerce').fillna(0)).cumsum()
+        _df_all[COL_RUN_TOT] = (pd.to_numeric(_df_all[COL_IN], errors='coerce').fillna(0) + \
+                                pd.to_numeric(_df_all[COL_OUT], errors='coerce').fillna(0)).cumsum()
 
-        expected_cols = [COL_DATA, COL_PLUS, COL_MINUS, COL_DESCR, COL_CLASS, COL_RUN_TOT]
+        expected_cols = [COL_DATE, COL_IN, COL_OUT, COL_DESCR, COL_CLASS, COL_RUN_TOT]
         missing_cols = [col for col in expected_cols if col not in _df_all.columns]
 
         if missing_cols:
@@ -540,7 +540,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             raise RuntimeError('No data files found or loaded. Please check DATA_DIR path.')
 
         # Strip hh:mm:ss from dates
-        _df_all[COL_DATA] = pd.to_datetime(_df_all[COL_DATA], errors='coerce').dt.strftime(FMT_DT_CSV)
+        _df_all[COL_DATE] = pd.to_datetime(_df_all[COL_DATE], errors='coerce').dt.strftime(FMT_DT_CSV)
         return _df_all
 
 

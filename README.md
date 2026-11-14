@@ -51,10 +51,10 @@ Everything lives in `data/etica/`. This folder is gitignored, so your statements
 | File | Purpose |
 |------|---------|
 | `*.xls` | Raw exports from home banking. On load they are converted to `*.csv` and **the `.xls` is deleted**, so keep the originals elsewhere. |
-| `*.csv` | Statements in `Data contabile,Dare,Avere,Descrizione` format (Banca Etica's columns: date, out, in, description). All of them are merged. |
+| `*.csv` | Statements in `Data contabile,Dare,Avere,Descrizione` format, Banca Etica's own Italian columns. All of them are merged, and from there on the columns are `Date,Out,In,Description`. |
 | `custom-classes.csv` | Optional. Rules giving movements a class (see [Custom classes](#custom-classes)). |
 | `blacklist.csv` | Archive only, superseded by `custom-classes.csv`. Never read. |
-| `merged.csv` | Output only: the merged, sorted ledger, rewritten on every load. It has no classes. |
+| `merged.csv` | Output only: the merged, sorted ledger (`Date,Out,In,Description`), rewritten on every load. It has no classes. |
 
 Files with any other extension (e.g. `*.csv.bk`) are ignored, which is handy for parking old exports.
 
@@ -68,10 +68,10 @@ If an import breaks loading (an unreadable file, or a rules file without the rig
 
 ### Custom classes
 
-`custom-classes.csv` is a list of rules, with the statement columns plus `Classe`:
+`custom-classes.csv` is a list of rules, with the ledger columns plus `Class`:
 
 ```csv
-Data contabile,Dare,Avere,Descrizione,Classe
+Date,Out,In,Description,Class
 # Lent to a friend
 2026-04-14,-1000,,*,loan
 *,*,*,RIMBORSO PARTITA TIME DEPOSIT,investment
@@ -82,12 +82,12 @@ A rule matches a movement when every field matches:
 
 | Field | `*` | blank | anything else |
 |-------|-----|-------|---------------|
-| `Data contabile` | any date | invalid | a `YYYY-MM-DD` date |
-| `Dare`, `Avere` | any amount | the movement's one must be blank too | that amount, to the cent |
-| `Descrizione` | anything | anything | contained in the description, in any letter case |
-| `Classe` | | invalid | the class name |
+| `Date` | any date | invalid | a `YYYY-MM-DD` date |
+| `Out`, `In` | any amount | the movement's one must be blank too | that amount, to the cent |
+| `Description` | anything | anything | contained in the description, in any letter case |
+| `Class` | | invalid | the class name |
 
-- Every distinct `Classe` text is a class, typos included: `loans` is not `loan`.
+- Every distinct `Class` text is a class, typos included: `loans` is not `loan`.
 - Rules apply in file order, each one to every movement. The first rule that matches a movement classifies it for good: a later rule giving it a *different* class logs an error and changes nothing.
 - Movements no rule matches are `todo`.
 - Descriptions are matched after cleanup, i.e. as shown in the ledger (e.g. `<BONIF>`).

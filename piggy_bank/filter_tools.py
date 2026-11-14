@@ -79,7 +79,7 @@ class QW_FilterTools(QWidget, Ui_FilterTools):
         """Sets qde_start and qde_end (and their reset defaults) to the min and max dates of the dataframe."""
         if df.empty:
             return
-        dates = pd.to_datetime(df[COL_DATA], errors='coerce')
+        dates = pd.to_datetime(df[COL_DATE], errors='coerce')
         min_date, max_date = dates.min(), dates.max()
 
         # Block signals so that reloading data doesn't trigger early filtering
@@ -96,8 +96,8 @@ class QW_FilterTools(QWidget, Ui_FilterTools):
 
     def setup_sliders(self, df: pd.DataFrame):
         """Calculates min/max from the dataframe and configures range sliders."""
-        ser_out = pd.to_numeric(df[COL_MINUS], errors='coerce').dropna()
-        ser_in = pd.to_numeric(df[COL_PLUS], errors='coerce').dropna()
+        ser_out = pd.to_numeric(df[COL_OUT], errors='coerce').dropna()
+        ser_in = pd.to_numeric(df[COL_IN], errors='coerce').dropna()
 
         incl = 0  # Inclusive max for slider
         out_min = int(ser_out.min()) if not ser_out.empty else 0

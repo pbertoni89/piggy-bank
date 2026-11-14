@@ -2,7 +2,7 @@
 import pandas as pd
 import pytest
 
-from piggy_bank.etica import (COL_DATA, COL_MINUS, COL_PLUS, COL_DESCR, COL_CLASS, CLASS_TODO, MERGED_CSV,
+from piggy_bank.etica import (COL_DATE, COL_OUT, COL_IN, COL_DESCR, COL_CLASS, CLASS_TODO, MERGED_CSV,
                               load_data, cluster_merged, cluster_custom, read_custom_classes)
 
 ROWS = [
@@ -39,7 +39,7 @@ def test_class_column_is_appended_and_merged_csv_knows_nothing(statements, write
 
     df = cluster_merged(df_merged)
 
-    assert list(df.columns) == [COL_DATA, COL_MINUS, COL_PLUS, COL_DESCR, COL_CLASS]
+    assert list(df.columns) == [COL_DATE, COL_OUT, COL_IN, COL_DESCR, COL_CLASS]
     assert COL_CLASS not in df_merged.columns  # the input is untouched
     assert COL_CLASS not in (data_dir / MERGED_CSV).read_text()
 
@@ -53,7 +53,7 @@ def test_wildcards_match_description_case_insensitive(statements, write_classes)
 
 
 def test_exact_rule(statements, write_classes):
-    # Date + Dare + blank Avere alone match two movements: the description narrows it to one
+    # Date + Out + blank In alone match two movements: the description narrows it to one
     got = classes(write_classes, ['2025-01-02,-1000,,PRESTITO,loan'])
 
     assert got['Bonifico a Mario per prestito'] == 'loan'
@@ -67,7 +67,7 @@ def test_exact_rule_may_match_many(statements, write_classes):
 
 
 def test_blank_amount_must_be_blank(statements, write_classes):
-    # PIZZA has Dare -7.5 and blank Avere, PIZZA restituita the opposite
+    # PIZZA has Out -7.5 and blank In, PIZZA restituita the opposite
     got = classes(write_classes, ['*,,*,pizza,refund'])
 
     assert got['PIZZA restituita'] == 'refund'
@@ -136,7 +136,7 @@ def test_quoted_description_with_comma(write_csv, write_classes):
 
 
 def test_wrong_header_raises(statements, write_classes):
-    write_classes(['*,*,*,PIZZA,food'], header='Data contabile,Dare,Avere,Descrizione')
+    write_classes(['*,*,*,PIZZA,food'], header='Date,Out,In,Description')
 
     with pytest.raises(ValueError, match='header'):
         cluster_merged(load_data())
@@ -144,7 +144,7 @@ def test_wrong_header_raises(statements, write_classes):
 
 def test_header_after_comments_and_bom(data_dir):
     path = data_dir / 'rules.csv'
-    path.write_text('﻿# my rules\nData contabile,Dare,Avere,Descrizione,Classe\n*,*,*,X,x\n', encoding='utf-8')
+    path.write_text('﻿# my rules\nDate,Out,In,Description,Class\n*,*,*,X,x\n', encoding='utf-8')
 
     rules = read_custom_classes(path)
 
@@ -153,7 +153,7 @@ def test_header_after_comments_and_bom(data_dir):
 
 def test_empty_data(write_classes):
     write_classes(['*,*,*,PIZZA,food'])
-    df = pd.DataFrame(columns=[COL_DATA, COL_MINUS, COL_PLUS, COL_DESCR])
+    df = pd.DataFrame(columns=[COL_DATE, COL_OUT, COL_IN, COL_DESCR])
 
     assert cluster_custom(df).empty
-    assert list(cluster_merged(df).columns) == [COL_DATA, COL_MINUS, COL_PLUS, COL_DESCR, COL_CLASS]
+    assert list(cluster_merged(df).columns) == [COL_DATE, COL_OUT, COL_IN, COL_DESCR, COL_CLASS]

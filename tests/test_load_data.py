@@ -2,7 +2,7 @@ import pandas as pd
 import pytest
 
 from piggy_bank import etica
-from piggy_bank.etica import COL_DATA, COL_MINUS, COL_PLUS, COL_DESCR, load_data
+from piggy_bank.etica import COL_DATE, COL_OUT, COL_IN, COL_DESCR, load_data
 
 
 def test_merges_and_sorts_all_statements(write_csv, data_dir):
@@ -17,9 +17,9 @@ def test_merges_and_sorts_all_statements(write_csv, data_dir):
     df = load_data()
 
     assert list(df[COL_DESCR]) == ['BREAD', 'SALARY', 'COFFEE']
-    assert pd.api.types.is_datetime64_any_dtype(df[COL_DATA])
+    assert pd.api.types.is_datetime64_any_dtype(df[COL_DATE])
     # Classes are cluster_merged()'s job
-    assert list(df.columns) == [COL_DATA, COL_MINUS, COL_PLUS, COL_DESCR]
+    assert list(df.columns) == [COL_DATE, COL_OUT, COL_IN, COL_DESCR]
 
 
 def test_same_date_order_is_deterministic(write_csv):
@@ -27,8 +27,8 @@ def test_same_date_order_is_deterministic(write_csv):
 
     df = load_data()
 
-    # Tiebreak on Dare ascending
-    assert list(df[COL_MINUS]) == [-2.0, -1.0]
+    # Tiebreak on Out ascending
+    assert list(df[COL_OUT]) == [-2.0, -1.0]
 
 
 def test_writes_merged_csv_and_ignores_it_on_reload(write_csv, data_dir):
@@ -73,15 +73,17 @@ def test_identical_rows_are_collapsed_known_limitation(write_csv):
 def test_xls_is_converted_to_csv_and_removed(data_dir, monkeypatch):
     xls = data_dir / 'estrattocontoitalia-2025.xls'
     xls.write_bytes(b'not really excel')
-    fake = pd.DataFrame({COL_DATA: ['2025-01-01'], COL_MINUS: [-1.0], COL_PLUS: [None],
-                         COL_DESCR: ['X'], 'Valuta': ['2025-01-02'], 'Divisa': ['EUR'], 'Causale': ['42']})
+    fake = pd.DataFrame({'Data contabile': ['2025-01-01'], 'Dare': [-1.0], 'Avere': [None],
+                         'Descrizione': ['X'], 'Valuta': ['2025-01-02'], 'Divisa': ['EUR'], 'Causale': ['42']})
     monkeypatch.setattr(etica.pd, 'read_excel', lambda path: fake.copy())
 
     df = load_data()
 
     assert not xls.exists()
     converted = pd.read_csv(data_dir / 'estrattocontoitalia-2025.csv')
-    assert list(converted.columns) == [COL_DATA, COL_MINUS, COL_PLUS, COL_DESCR]
+    # The converted CSV is still source data, with the Italian headers; the loaded frame is English
+    assert list(converted.columns) == ['Data contabile', 'Dare', 'Avere', 'Descrizione']
+    assert list(df.columns) == [COL_DATE, COL_OUT, COL_IN, COL_DESCR]
     assert len(df) == 1
 
 
@@ -104,4 +106,4 @@ def test_rules_and_archived_blacklist_are_not_statements(write_csv, write_classe
     df = load_data()
 
     assert len(df) == 1
-    assert list(pd.read_csv(data_dir / 'merged.csv').columns) == [COL_DATA, COL_MINUS, COL_PLUS, COL_DESCR]
+    assert list(pd.read_csv(data_dir / 'merged.csv').columns) == [COL_DATE, COL_OUT, COL_IN, COL_DESCR]
