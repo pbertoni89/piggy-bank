@@ -312,9 +312,10 @@ def cluster_custom(df: pd.DataFrame, path: Path | None = None) -> pd.Series:
 AUTO_N_CLUSTERS = 5    # 0 turns automatic clustering off: unclassified movements stay CLASS_TODO
 AUTO_SEED = 42         # KMeans random_state
 AUTO_MODEL = 'paraphrase-multilingual-MiniLM-L12-v2'  # sentence_transformers model (multilingual: Italian descriptions)
-AUTO_PREFIX = 'auto'   # automatic class names: AUTO_PREFIX + cluster number (+ keywords), e.g. 'auto1 pos/pagamento'
+AUTO_PREFIX = 'a'      # automatic class names: [AUTO_PREFIX + cluster number] + keywords, e.g. '[a1] pagamento/esselunga'
 AUTO_NAME_WORDS = 2    # keywords per automatic class name
-AUTO_TOKEN = r'(?u)\b[^\W\d_]{3,}\b'  # keyword candidates: 3+ letters, no digits (skips card numbers, codes, dates)
+AUTO_MIN_WORD = 5      # keyword candidates have at least this many letters: skips prepositions (del, per), CRO, POS...
+AUTO_TOKEN = rf'(?u)\b[^\W\d_]{{{AUTO_MIN_WORD},}}\b'  # letters only: no card numbers, codes, dates
 
 _auto_model = None
 _auto_embeddings = {}  # {description: embedding}: re-clustering with other settings never encodes again
@@ -359,11 +360,17 @@ def _cluster_keywords(docs: list) -> list:
             for w in weights]
 
 
+def auto_class_name(n: int, k: int, words: list) -> str:
+    """The name of automatic class n of k: '[a<n>] word1/word2', or just '[a<n>]' without keywords.
+    n is zero-padded to the digits of k (k=10: [a01] .. [a10]), so alphabetical order is size order."""
+    return ' '.join([f'[{AUTO_PREFIX}{n:0{len(str(k))}d}]', '/'.join(words)]).strip()
+
+
 def cluster_auto(df: pd.DataFrame, classes: pd.Series, n_clusters: int = AUTO_N_CLUSTERS,
                  seed: int = AUTO_SEED) -> pd.Series:
     """classes, with the rows it leaves as None classified automatically: their descriptions are embedded
     with a sentence_transformers model (AUTO_MODEL) and grouped in n_clusters by KMeans (random_state=seed).
-    Each cluster becomes a class named AUTO_PREFIX + its number (1 = the largest) + its keywords.
+    Each cluster becomes a class named [AUTO_PREFIX + its number] (1 = the largest) + its keywords, see auto_class_name().
     n_clusters is capped at the number of distinct descriptions; 0 leaves the Nones as they are.
     Expensive the first time (model loading and encoding), cheap afterwards: embeddings are cached."""
     todo = classes.isna()
@@ -382,9 +389,7 @@ def cluster_auto(df: pd.DataFrame, classes: pd.Series, n_clusters: int = AUTO_N_
     first = {c: i for i, c in reversed(list(enumerate(labels)))}
     order = sorted(range(k), key=lambda c: (-sizes[c], first[c]))
     keywords = _cluster_keywords([' '.join(t for t, l in zip(texts, labels) if l == c) for c in order])
-    width = len(str(k))  # zero-padded, so alphabetical order is size order
-    names = {c: ' '.join([f'{AUTO_PREFIX}{n:0{width}d}', '/'.join(words)]).strip()
-             for n, (c, words) in enumerate(zip(order, keywords), start=1)}
+    names = {c: auto_class_name(n, k, words) for n, (c, words) in enumerate(zip(order, keywords), start=1)}
 
     classes = classes.copy()
     classes[todo] = [names[l] for l in labels]

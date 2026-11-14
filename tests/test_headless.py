@@ -38,7 +38,7 @@ def test_driver_prints_every_view(data, capsys, caplog):
     runpy.run_path(str(ROOT / 'driver.py'), run_name='__main__')
 
     # The 3 unclassified movements are clustered automatically, with the default settings
-    assert 'Classes: auto1 stipendio: 2, auto2 pizza: 1, blacklist: 1, investment: 2' in capsys.readouterr().out
+    assert 'Classes: [a1] stipendio: 2, [a2] pizza: 1, blacklist: 1, investment: 2' in capsys.readouterr().out
     from piggy_bank.etica import DEFAULT_VIEWS, view_label
     for exclude in DEFAULT_VIEWS:
         assert view_label(exclude) in caplog.text

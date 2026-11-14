@@ -6,8 +6,8 @@ import pandas as pd
 import pytest
 
 from piggy_bank import etica
-from piggy_bank.etica import (COL_DESCR, COL_CLASS, CLASS_TODO, AUTO_PREFIX, AUTO_N_CLUSTERS, AUTO_SEED,
-                              load_data, cluster_auto, cluster_merged)
+from piggy_bank.etica import (COL_DESCR, COL_CLASS, CLASS_TODO, AUTO_N_CLUSTERS, AUTO_SEED,
+                              load_data, cluster_auto, cluster_merged, auto_class_name)
 
 DESCRIPTIONS = ['PAGAMENTO POS ESSELUNGA', 'PAGAMENTO POS CONAD', 'PAGAMENTO POS COOP',
                 'PRELIEVO BANCOMAT 4455', 'PRELIEVO BANCOMAT 9911',
@@ -25,10 +25,11 @@ def test_groups_similar_descriptions_and_names_them_by_keywords():
     got = auto(DESCRIPTIONS, n_clusters=3)
 
     assert dict(zip(DESCRIPTIONS, got)) == {
-        'PAGAMENTO POS ESSELUNGA': 'auto1 pagamento/pos', 'PAGAMENTO POS CONAD': 'auto1 pagamento/pos',
-        'PAGAMENTO POS COOP': 'auto1 pagamento/pos',
-        'PRELIEVO BANCOMAT 4455': 'auto2 bancomat/prelievo', 'PRELIEVO BANCOMAT 9911': 'auto2 bancomat/prelievo',
-        'ADDEBITO SDD ENEL': 'auto3 addebito/sdd', 'ADDEBITO SDD TIM': 'auto3 addebito/sdd'}
+        'PAGAMENTO POS ESSELUNGA': '[a1] pagamento/conad', 'PAGAMENTO POS CONAD': '[a1] pagamento/conad',
+        'PAGAMENTO POS COOP': '[a1] pagamento/conad',
+        'PRELIEVO BANCOMAT 4455': '[a2] bancomat/prelievo', 'PRELIEVO BANCOMAT 9911': '[a2] bancomat/prelievo',
+        # Words under 5 letters (SDD, ENEL, TIM) never name a class
+        'ADDEBITO SDD ENEL': '[a3] addebito', 'ADDEBITO SDD TIM': '[a3] addebito'}
 
 
 def test_only_fills_unclassified_rows():
@@ -37,7 +38,7 @@ def test_only_fills_unclassified_rows():
     got = auto(DESCRIPTIONS, classes, n_clusters=2)
 
     assert got[0] == 'food' and got[3] == 'cash'
-    assert all(c.startswith(AUTO_PREFIX) for i, c in enumerate(got) if classes[i] is None)
+    assert all(re.fullmatch(r'\[a\d\]( .+)?', c) for i, c in enumerate(got) if classes[i] is None)
 
 
 def test_input_is_untouched():
@@ -60,17 +61,27 @@ def test_k_capped_at_distinct_descriptions(caplog):
 
 
 def test_numbered_by_size_zero_padded():
-    # 10 clusters: names sort alphabetically in size order (auto01 .. auto10)
+    # 10 clusters: names sort alphabetically in size order ([a01] .. [a10])
     descriptions = [f'WORD{chr(65 + i)} THING{chr(65 + i)}' for i in range(10)] + ['WORDA THINGA'] * 3
 
     got = auto(descriptions, n_clusters=10)
 
-    assert got[0].startswith('auto01 ')  # the largest cluster
-    assert sorted({re.match(r'auto\d+', c).group() for c in got}) == [f'auto{i:02d}' for i in range(1, 11)]
+    assert got[0].startswith('[a01] ')  # the largest cluster
+    assert sorted({re.match(r'\[a\d+\]', c).group() for c in got}) == [f'[a{i:02d}]' for i in range(1, 11)]
+
+
+@pytest.mark.parametrize('k, n, name', [(9, 3, '[a3] x'), (10, 3, '[a03] x'), (100, 3, '[a003] x'),
+                                         (100, 100, '[a100] x'), (1000, 42, '[a0042] x')])
+def test_name_padding(k, n, name):
+    assert auto_class_name(n, k, ['x']) == name
+
+
+def test_short_words_never_name_a_class():
+    assert set(auto(['BONIFICO DEL CRO PER', 'BONIFICO DEL CRO CON'], n_clusters=1)) == {'[a1] bonifico'}
 
 
 def test_no_words_only_numbers():
-    assert set(auto(['123 456', '789 012'], n_clusters=2)) == {'auto1', 'auto2'}
+    assert set(auto(['123 456', '789 012'], n_clusters=2)) == {'[a1]', '[a2]'}
 
 
 def test_seed_is_kmeans_random_state(monkeypatch):

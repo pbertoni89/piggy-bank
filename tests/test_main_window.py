@@ -309,15 +309,15 @@ class TestClusteringSettings:
         assert window.ui_classes.clustering_settings() == {'n_clusters': etica.AUTO_N_CLUSTERS, 'seed': etica.AUTO_SEED}
         # 3 distinct unclassified descriptions, fewer than the default 5 clusters
         # Same size: numbered by first appearance
-        assert column(window, COL_CLASS) == ['auto1 pizza', 'auto2 salary', 'auto3 asporto/pizza', 'investment']
+        assert column(window, COL_CLASS) == ['[a1] pizza', '[a2] salary', '[a3] asporto/pizza', 'investment']
 
     def test_fewer_clusters(self, qtbot, window):
         self.change(qtbot, window, n_clusters=1)
 
-        assert column(window, COL_CLASS) == ['auto1 pizza/asporto'] * 3 + ['investment']
-        assert list(window.ft.class_checkboxes()) == ['auto1 pizza/asporto', 'investment']
+        assert column(window, COL_CLASS) == ['[a1] pizza/asporto'] * 3 + ['investment']
+        assert list(window.ft.class_checkboxes()) == ['[a1] pizza/asporto', 'investment']
         tabs = window.ui_classes.qtw_tabs
-        assert [tabs.tabText(i) for i in range(tabs.count())] == ['auto1 pizza/asporto', 'investment']
+        assert [tabs.tabText(i) for i in range(tabs.count())] == ['[a1] pizza/asporto', 'investment']
 
     def test_zero_clusters_means_todo(self, qtbot, window):
         self.change(qtbot, window, n_clusters=0)
