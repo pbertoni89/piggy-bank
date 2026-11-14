@@ -178,6 +178,11 @@ class QW_FilterTools(QWidget, Ui_FilterTools):
 
     @Slot()
     def _on_qpb_reset_clicked(self):
+        self.reset_filters()
+
+    def reset_filters(self, emit: bool = True):
+        """Every filter back to its startup state: all classes and directions, no text, the whole date and amount
+        ranges. Emits filters_updated once, unless emit is False (the caller applies the filters itself)."""
         logging.info("Resetting UI filters to startup state...")
 
         # Block signals temporarily to prevent massive UI cascading
@@ -212,8 +217,10 @@ class QW_FilterTools(QWidget, Ui_FilterTools):
         for widget in controls:
             widget.blockSignals(False)
 
-        # Emit standard signals manually
-        self.filters_updated.emit()
+        # A pending debounced emission would filter again for nothing
+        self.__timer.stop()
+        if emit:
+            self.filters_updated.emit()
 
     LAST_MONTH_DAYS = 31
 

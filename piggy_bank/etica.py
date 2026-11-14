@@ -61,7 +61,7 @@ NOT_STATEMENTS = {MERGED_CSV, CUSTOM_CLASSES_CSV, BLACKLIST_CSV}
 RULE_COLUMNS = [COL_DATE, COL_OUT, COL_IN, COL_DESCR, COL_CLASS]
 RULE_ANY = '*'       # matches any value
 RULE_COMMENT = '#'   # a line starting with it is ignored
-CLASS_TODO = 'todo'  # movements no custom rule (nor, later, cluster_auto) classified
+CLASS_TODO = 'todo'  # movements neither a custom rule nor cluster_auto classified (only with auto clustering off)
 
 
 def load_data() -> pd.DataFrame:
@@ -131,6 +131,7 @@ def load_data() -> pd.DataFrame:
                       ("Pagamenti paesi UE DEL", ""),
                       ("ADDEBITO DIRETTO CORE RCUR Prg.Car.:", ""),
                       ("Bonifico - SEPA istantaneo a vs favore", "<BONIF>"),
+                      ("DISPOSIZIONE PERIODICA CONTINUATIVA", "<BONIF>"),
                       ("Valuta EUR Paese Italia C/O", ""),
                       ("Bonifico - SEPA istantaneo", "<BONIF>"),
                       ("ADDEBITO BONIFICO DA HOME BANKING", "<BONIF>"),
@@ -272,16 +273,96 @@ def cluster_custom(df: pd.DataFrame, path: Path | None = None) -> pd.Series:
     return classes
 
 
-def cluster_auto(df: pd.DataFrame, classes: pd.Series) -> pd.Series:
-    """Classes for the rows of df that classes leaves as None. Not implemented yet: returns classes as is."""
+# Automatic classes (cluster_auto). The defaults mirror qsb_settings_classes_num / qsb_settings_seed in classes.ui
+AUTO_N_CLUSTERS = 5    # 0 turns automatic clustering off: unclassified movements stay CLASS_TODO
+AUTO_SEED = 42         # KMeans random_state
+AUTO_MODEL = 'paraphrase-multilingual-MiniLM-L12-v2'  # sentence_transformers model (multilingual: Italian descriptions)
+AUTO_PREFIX = 'auto'   # automatic class names: AUTO_PREFIX + cluster number (+ keywords), e.g. 'auto1 pos/pagamento'
+AUTO_NAME_WORDS = 2    # keywords per automatic class name
+AUTO_TOKEN = r'(?u)\b[^\W\d_]{3,}\b'  # keyword candidates: 3+ letters, no digits (skips card numbers, codes, dates)
+
+_auto_model = None
+_auto_embeddings = {}  # {description: embedding}: re-clustering with other settings never encodes again
+
+
+def _load_auto_model():
+    """The AUTO_MODEL SentenceTransformer, loaded once. The cached copy first: a plain load contacts the HF Hub
+    every time (and warns about unauthenticated requests); download only if it isn't cached yet."""
+    global _auto_model
+    if _auto_model is None:
+        from sentence_transformers import SentenceTransformer  # heavy import (torch), only when needed
+        try:
+            _auto_model = SentenceTransformer(AUTO_MODEL, local_files_only=True)
+        except OSError:
+            _lg.info(f'Downloading the sentence_transformers model {AUTO_MODEL}...')
+            _auto_model = SentenceTransformer(AUTO_MODEL)
+    return _auto_model
+
+
+def embed_texts(texts: list) -> np.ndarray:
+    """One normalised AUTO_MODEL embedding per text (a row each). Texts already seen come from a cache."""
+    missing = [t for t in dict.fromkeys(texts) if t not in _auto_embeddings]
+    if missing:
+        _lg.info(f'Encoding {len(missing)} descriptions with {AUTO_MODEL}...')
+        vectors = _load_auto_model().encode(missing, normalize_embeddings=True, show_progress_bar=False)
+        _auto_embeddings.update(zip(missing, vectors))
+    return np.array([_auto_embeddings[t] for t in texts])
+
+
+def _cluster_keywords(docs: list) -> list:
+    """For each doc (all the descriptions of a cluster, joined), its AUTO_NAME_WORDS most distinctive words:
+    TF-IDF with one document per cluster, so words common to every cluster weigh least."""
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    try:
+        tfidf = TfidfVectorizer(lowercase=True, token_pattern=AUTO_TOKEN)
+        weights = tfidf.fit_transform(docs).toarray()
+    except ValueError:  # no word at all, only numbers and codes
+        return [[] for _ in docs]
+    words = tfidf.get_feature_names_out()
+    # Ties broken alphabetically, so names don't depend on the vocabulary order
+    return [[words[i] for i in sorted(np.flatnonzero(w), key=lambda i: (-w[i], words[i]))[:AUTO_NAME_WORDS]]
+            for w in weights]
+
+
+def cluster_auto(df: pd.DataFrame, classes: pd.Series, n_clusters: int = AUTO_N_CLUSTERS,
+                 seed: int = AUTO_SEED) -> pd.Series:
+    """classes, with the rows it leaves as None classified automatically: their descriptions are embedded
+    with a sentence_transformers model (AUTO_MODEL) and grouped in n_clusters by KMeans (random_state=seed).
+    Each cluster becomes a class named AUTO_PREFIX + its number (1 = the largest) + its keywords.
+    n_clusters is capped at the number of distinct descriptions; 0 leaves the Nones as they are.
+    Expensive the first time (model loading and encoding), cheap afterwards: embeddings are cached."""
+    todo = classes.isna()
+    if n_clusters <= 0 or not todo.any():
+        return classes
+    texts = df.loc[todo, COL_DESCR].fillna('').astype(str).tolist()
+    k = min(n_clusters, len(set(texts)))
+    if k < n_clusters:
+        _lg.warning(f'Only {k} distinct unclassified descriptions: {k} automatic classes instead of {n_clusters}')
+
+    from sklearn.cluster import KMeans
+    labels = KMeans(n_clusters=k, random_state=seed, n_init=10).fit_predict(embed_texts(texts))
+
+    # Number the clusters by size, largest first; ties by first appearance in df (chronological after load_data())
+    sizes = np.bincount(labels, minlength=k)
+    first = {c: i for i, c in reversed(list(enumerate(labels)))}
+    order = sorted(range(k), key=lambda c: (-sizes[c], first[c]))
+    keywords = _cluster_keywords([' '.join(t for t, l in zip(texts, labels) if l == c) for c in order])
+    width = len(str(k))  # zero-padded, so alphabetical order is size order
+    names = {c: ' '.join([f'{AUTO_PREFIX}{n:0{width}d}', '/'.join(words)]).strip()
+             for n, (c, words) in enumerate(zip(order, keywords), start=1)}
+
+    classes = classes.copy()
+    classes[todo] = [names[l] for l in labels]
+    _lg.info(f'Automatic classes (k={k}, seed={seed}): ' + ', '.join(f'{names[c]} {sizes[c]}' for c in order))
     return classes
 
 
-def cluster_merged(df_merged: pd.DataFrame) -> pd.DataFrame:
+def cluster_merged(df_merged: pd.DataFrame, n_clusters: int = AUTO_N_CLUSTERS, seed: int = AUTO_SEED) -> pd.DataFrame:
     """df_clustered: a copy of df_merged (the output of load_data()) with COL_CLASS appended.
-    Custom classes first, then automatic ones for the rest; whatever is left is CLASS_TODO."""
+    Custom classes first, then automatic ones for the rest (cluster_auto(), with n_clusters and seed);
+    whatever is left is CLASS_TODO."""
     classes = cluster_custom(df_merged)
-    classes = cluster_auto(df_merged, classes)
+    classes = cluster_auto(df_merged, classes, n_clusters=n_clusters, seed=seed)
     df_clustered = df_merged.copy()
     df_clustered[COL_CLASS] = classes.fillna(CLASS_TODO).astype(str)
     counts = df_clustered[COL_CLASS].value_counts()

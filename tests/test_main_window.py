@@ -124,6 +124,7 @@ def test_periods_tab_follows_filters(window):
     assert table.item(0, 4).text() == '1'
 
 
+@pytest.mark.usefixtures('auto_off')
 class TestClassColumn:
 
     @pytest.fixture
@@ -233,6 +234,7 @@ class TestImportData:
         assert column(window, COL_DESCR) == ['PIZZA', 'SALARY']
 
 
+@pytest.mark.usefixtures('auto_off')
 class TestImportCustomClasses:
     """The qa_import_custom_classes action imports custom-classes.csv, which superseded blacklist.csv."""
 
@@ -282,3 +284,75 @@ class TestExportData:
         window.qa_export_data.trigger()
 
         assert list(downloads.iterdir()) == []
+
+
+class TestClusteringSettings:
+    """qsb_settings_classes_num / qsb_settings_seed in the Classes tab re-cluster the whole data and reset filters."""
+
+    @pytest.fixture
+    def window(self, qtbot, write_csv, write_classes, dialogs):
+        write_csv('a.csv', ROWS + [('2025-01-06', -50.0, None, 'SOTTOSCRIZIONE FONDI'),
+                                   ('2025-01-07', -20.0, None, 'PIZZA ASPORTO')])
+        write_classes(['*,*,*,fondi,investment'])
+        w = main_window.MainWindow()
+        qtbot.addWidget(w)
+        return w
+
+    def change(self, qtbot, window, n_clusters=None, seed=None):
+        with qtbot.waitSignal(window.ui_classes.clustering_changed, timeout=3000):
+            if n_clusters is not None:
+                window.ui_classes.qsb_settings_classes_num.setValue(n_clusters)
+            if seed is not None:
+                window.ui_classes.qsb_settings_seed.setValue(seed)
+
+    def test_starts_with_ui_defaults(self, window):
+        assert window.ui_classes.clustering_settings() == {'n_clusters': etica.AUTO_N_CLUSTERS, 'seed': etica.AUTO_SEED}
+        # 3 distinct unclassified descriptions, fewer than the default 5 clusters
+        # Same size: numbered by first appearance
+        assert column(window, COL_CLASS) == ['auto1 pizza', 'auto2 salary', 'auto3 asporto/pizza', 'investment']
+
+    def test_fewer_clusters(self, qtbot, window):
+        self.change(qtbot, window, n_clusters=1)
+
+        assert column(window, COL_CLASS) == ['auto1 pizza/asporto'] * 3 + ['investment']
+        assert list(window.ft.class_checkboxes()) == ['auto1 pizza/asporto', 'investment']
+        tabs = window.ui_classes.qtw_tabs
+        assert [tabs.tabText(i) for i in range(tabs.count())] == ['auto1 pizza/asporto', 'investment']
+
+    def test_zero_clusters_means_todo(self, qtbot, window):
+        self.change(qtbot, window, n_clusters=0)
+
+        assert column(window, COL_CLASS) == ['investment'] + [CLASS_TODO] * 3
+
+    def test_settings_are_debounced_into_one_reclustering(self, qtbot, window, monkeypatch):
+        calls = []
+        real = etica.cluster_merged
+        monkeypatch.setattr(main_window, 'cluster_merged', lambda df, **kw: calls.append(kw) or real(df, **kw))
+
+        self.change(qtbot, window, n_clusters=2, seed=7)
+        qtbot.wait(100)
+
+        assert calls == [{'n_clusters': 2, 'seed': 7}]
+
+    def test_reclusters_without_reading_files_and_resets_filters(self, qtbot, window, monkeypatch):
+        window.ft.qle_description.setText('pizza')
+        window.ft.qchk_in.setChecked(False)
+        window.ft.class_checkboxes()['investment'].setChecked(False)
+        window._apply_filters()
+        assert visible_descriptions(window) == ['PIZZA', 'PIZZA ASPORTO']
+        monkeypatch.setattr(main_window, 'load_data', lambda: pytest.fail('files read again'))
+
+        self.change(qtbot, window, n_clusters=1)
+
+        assert window.ft.qle_description.text() == ''
+        assert window.ft.qchk_in.isChecked() and not window.ft.excluded_classes()
+        assert visible_descriptions(window) == ['PIZZA', 'PIZZA ASPORTO', 'SALARY', 'SOTTOSCRIZIONE FONDI']
+
+    def test_failure_keeps_previous_classes(self, qtbot, window, dialogs, monkeypatch):
+        before = column(window, COL_CLASS)
+        monkeypatch.setattr(main_window, 'cluster_merged', lambda df, **kw: 1 / 0)
+
+        self.change(qtbot, window, n_clusters=1)
+
+        assert dialogs.messages[0][0] == 'critical'
+        assert column(window, COL_CLASS) == before

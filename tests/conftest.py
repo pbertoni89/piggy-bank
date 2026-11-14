@@ -3,6 +3,9 @@ import os
 # Qt widgets must be creatable without a display (CI, ssh, ...)
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
+import zlib
+
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -37,3 +40,26 @@ def write_classes(data_dir):
         path.write_text('\n'.join([header, *lines]) + '\n')
         return path
     return _write
+
+
+def fake_embed_texts(texts: list) -> np.ndarray:
+    """Stands in for etica.embed_texts(): a normalised bag of words hashed into 64 dimensions. Deterministic,
+    no model to load, and descriptions sharing words end up close, like real embeddings."""
+    vectors = np.zeros((len(texts), 64))
+    for row, text in enumerate(texts):
+        for word in text.lower().split():
+            vectors[row, zlib.crc32(word.encode()) % 64] += 1
+    norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+    return vectors / np.where(norms == 0, 1, norms)
+
+
+@pytest.fixture(autouse=True)
+def fake_embeddings(monkeypatch):
+    """Tests never load the sentence_transformers model (slow, maybe a download)."""
+    monkeypatch.setattr(etica, 'embed_texts', fake_embed_texts)
+
+
+@pytest.fixture
+def auto_off(monkeypatch):
+    """No automatic clustering, whatever the settings: movements no custom rule matches stay CLASS_TODO."""
+    monkeypatch.setattr(etica, 'cluster_auto', lambda df, classes, **kwargs: classes)

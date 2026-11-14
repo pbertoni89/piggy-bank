@@ -8,7 +8,7 @@ import logging
 import plotly.graph_objects as go
 
 from PySide6.QtCore import Slot, Qt
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QIcon, QGuiApplication
 from PySide6.QtWidgets import QApplication, QMainWindow, QTableWidgetItem, QHeaderView, QFileDialog, QMessageBox
 from piggy_bank.qw_misc import *
 from piggy_bank.ui.main_window_rc import Ui_MainWindow
@@ -41,7 +41,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.ql_classes.addWidget(self.ui_classes)
         self.ql_periods.addWidget(self.ui_periods)
 
-        df = self.get_data_source()
+        # load_data()'s output, kept so that new clustering settings re-cluster without reading the files again
+        self.df_merged = load_data()
+        df = self._clustered_data()
 
         # Initialise dynamic widgets
         self.stats_all = QW_AggrStats("All", coloured=True)
@@ -83,6 +85,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.ui_plots_stats.qcb_plots_histograms_amount.currentIndexChanged.connect(lambda _: self._update_plot())
         self.ui_plots_stats.qcb_plots_histograms_time.currentIndexChanged.connect(lambda _: self._update_plot())
         self.ui_plots_lines.qcb_candles_time.currentIndexChanged.connect(lambda _: self._update_plot())
+        self.ui_classes.clustering_changed.connect(self._on_ui_classes_clustering_changed)
 
         # DataFrame to store dynamically filtered rows for plotting
         self.df_plot = pd.DataFrame()
@@ -95,8 +98,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # Initial render
         self._show_data(df)
 
-    def _show_data(self, df: pd.DataFrame):
-        """(Re)fills the ledger with df and re-applies the current filters. Used at startup and after every import."""
+    def _show_data(self, df: pd.DataFrame, reset_filters: bool = False):
+        """(Re)fills the ledger with df and re-applies the current filters (or, with reset_filters, resets them
+        all first). Used at startup, after every import and after a clustering settings change."""
         # Cache column indices dynamically to avoid hardcoding
         self.__idx_data = df.columns.get_loc(COL_DATE)
         self.__idx_out = df.columns.get_loc(COL_OUT)
@@ -124,6 +128,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.ft.setup_dates(df)
         self.ft.setup_sliders(df)
         self.ft.setup_classes(df)
+        if reset_filters:
+            self.ft.reset_filters(emit=False)  # filtered just below
 
         # Enable sorting after population
         self.ui_ledger.qtw_ledger.setSortingEnabled(True)
@@ -135,7 +141,30 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     def _reload_data(self):
         """Runs the whole load_data() + cluster_merged() pipeline again and refreshes every widget."""
-        self._show_data(self.get_data_source())
+        self.df_merged = load_data()
+        self._show_data(self._clustered_data())
+
+    def _clustered_data(self) -> pd.DataFrame:
+        """self.df_merged clustered with the current settings of the Classes tab, ready for the ledger."""
+        return self.prepare_data(cluster_merged(self.df_merged, **self.ui_classes.clustering_settings()))
+
+    @Slot()
+    def _on_ui_classes_clustering_changed(self):
+        """New clustering settings: re-clusters the whole data (not just the visible rows) and resets every filter,
+        since the classes they refer to are gone."""
+        settings = self.ui_classes.clustering_settings()
+        logging.info(f'Re-clustering with {settings}')
+        QGuiApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            df = self._clustered_data()
+        except Exception as e:
+            logging.exception('Clustering failed')
+            QMessageBox.critical(self, 'Clustering failed', f'Could not cluster with {settings}:\n\n{e}')
+            return
+        finally:
+            QGuiApplication.restoreOverrideCursor()
+        self._show_data(df, reset_filters=True)
+        self.statusbar.showMessage(f"Re-clustered: {settings['n_clusters']} classes, seed {settings['seed']}", 5000)
 
     def _import_and_reload(self, src: Path, dst: Path, touched: list) -> bool:
         """Copies src to dst, then reloads everything. If anything fails, the touched files
@@ -528,10 +557,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.plot_box_in.render_figure(fig_box_in)
 
     @staticmethod
-    def get_data_source() -> pd.DataFrame:
+    def prepare_data(df_clustered: pd.DataFrame) -> pd.DataFrame:
         """df_clustered (see etica.cluster_merged()) plus the running total, with dates as YYYY-MM-DD strings."""
-        logging.debug("Loading data pipeline...")
-        _df_all = cluster_merged(load_data())
+        _df_all = df_clustered.copy()
 
         # Provide Running Total dynamically into DataFrame right from load stage
         _df_all[COL_RUN_TOT] = (pd.to_numeric(_df_all[COL_IN], errors='coerce').fillna(0) + \

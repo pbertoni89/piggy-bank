@@ -14,6 +14,9 @@ ROWS = [
     ('2025-01-04', None, 7.5, 'PIZZA restituita'),
 ]
 
+# These tests are about the custom rules: what they leave unclassified stays CLASS_TODO (see test_cluster_auto.py)
+pytestmark = pytest.mark.usefixtures('auto_off')
+
 
 @pytest.fixture
 def statements(write_csv):

@@ -6,7 +6,7 @@ from typing import Optional
 import pandas as pd
 import plotly.graph_objects as go
 
-from PySide6.QtCore import Qt, QTimer, QCoreApplication, Slot
+from PySide6.QtCore import Qt, QTimer, QCoreApplication, Signal, Slot
 from PySide6.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout, QTableWidgetItem, QHeaderView, QTableWidget
 from PySide6.QtGui import QColor, QPalette, QBrush
 
@@ -327,14 +327,38 @@ class QW_Classes(QWidget, Ui_Classes):
     labelled with the class name, each with a QW_MovementsTable of that class's movements (columns from
     movements_table.ui). Alongside, qsac_aggr stacks a QW_AggrStats per visible class (same order), titled with the
     class name, over that class's amounts. qsa_aggr scrolls vertically only: its minimum width fits the boxes.
-    The clustering settings (qsb_settings_classes_num, qsb_settings_seed) and qhl_charts are not implemented yet."""
+    The clustering settings (qsb_settings_classes_num = n_clusters, qsb_settings_seed = seed, see
+    etica.cluster_auto()) emit clustering_changed, debounced: the owner re-clusters the whole data.
+    qhl_charts is not implemented yet."""
+
+    clustering_changed = Signal()
+    DEBOUNCE_MS = 1000
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setupUi(self)
+        # Re-clustering is expensive: one signal per burst of spin box steps or keystrokes
+        self.__timer = QTimer(self)
+        self.__timer.setSingleShot(True)
+        self.__timer.setInterval(self.DEBOUNCE_MS)
+        self.__timer.timeout.connect(self.clustering_changed.emit)
+        self.qsb_settings_classes_num.valueChanged.connect(self._on_qsb_settings_classes_num_valueChanged)
+        self.qsb_settings_seed.valueChanged.connect(self._on_qsb_settings_seed_valueChanged)
         # {class name: its widget}. A class's widgets are reused while the class stays visible (a table keeps its sort)
         self.__tables = {}
         self.__aggr = {}
+
+    def clustering_settings(self) -> dict:
+        """The keyword arguments of etica.cluster_merged() / cluster_auto(): {'n_clusters': ..., 'seed': ...}."""
+        return {'n_clusters': self.qsb_settings_classes_num.value(), 'seed': self.qsb_settings_seed.value()}
+
+    @Slot(int)
+    def _on_qsb_settings_classes_num_valueChanged(self, _):
+        self.__timer.start()
+
+    @Slot(int)
+    def _on_qsb_settings_seed_valueChanged(self, _):
+        self.__timer.start()
 
     def class_tables(self) -> dict:
         """{class name: QW_MovementsTable}, in tab order."""
