@@ -3,11 +3,11 @@ import math
 import pandas as pd
 import pytest
 
-from piggy_bank.etica import (COL_DATA, COL_MINUS, COL_PLUS, COL_DESCR, COL_RUN_TOT, COL_OLS, COL_IMP, COL_INV,
+from piggy_bank.etica import (COL_DATA, COL_MINUS, COL_PLUS, COL_DESCR, COL_RUN_TOT, COL_OLS, COL_IMP, COL_CLASS,
                               compute_importo, compute_ols, compute_candlesticks,
                               TF_WEEKLY, TF_MONTHLY, TF_YEARLY, period_start, AggrStats, compute_period_stats,
                               COL_PERIOD,
-                              COL_BL, MODE_ALL, MODE_FORCE, MODE_VETO, mode_keeps, apply_modes, build_view,
+                              apply_classes, build_view, view_label, CLASS_TODO, sorted_classes,
                               sort_by_data_contabile)
 
 
@@ -117,50 +117,45 @@ def test_compute_candlesticks_bad_timeframe_returns_empty():
     assert compute_candlesticks(df, 'NOT_A_FREQ').empty
 
 
-@pytest.mark.parametrize('mode, kept', [(MODE_ALL, [0, 1]), (MODE_FORCE, [1]), (MODE_VETO, [0])])
-def test_mode_keeps(mode, kept):
-    assert [flag for flag in (0, 1) if mode_keeps(mode, flag)] == kept
-
-
-def test_mode_keeps_rejects_unknown_mode():
-    with pytest.raises(ValueError, match='Unknown filter mode'):
-        mode_keeps('only', 1)
-
-
 @pytest.fixture
-def flagged():
+def classified():
     df = ledger([
-        ('2025-01-01', -100.0, None, 'BL INV'),
-        ('2025-01-02', -5.0, None, 'BL'),
-        ('2025-01-03', None, 3.0, 'INV'),
+        ('2025-01-01', -100.0, None, 'FONDO'),
+        ('2025-01-02', -5.0, None, 'PIZZA'),
+        ('2025-01-03', None, 3.0, 'CEDOLE'),
         ('2025-01-04', None, 7.0, 'PLAIN'),
     ])
-    df[COL_BL] = [1, 1, 0, 0]
-    df[COL_INV] = [1, 0, 1, 0]
+    df[COL_CLASS] = ['investment', 'food', 'investment', CLASS_TODO]
     return df
 
 
-@pytest.mark.parametrize('bl, inv, expected', [
-    (MODE_ALL, MODE_ALL, ['BL INV', 'BL', 'INV', 'PLAIN']),
-    (MODE_VETO, MODE_ALL, ['INV', 'PLAIN']),
-    (MODE_FORCE, MODE_ALL, ['BL INV', 'BL']),
-    (MODE_ALL, MODE_FORCE, ['BL INV', 'INV']),
-    (MODE_ALL, MODE_VETO, ['BL', 'PLAIN']),
-    (MODE_VETO, MODE_VETO, ['PLAIN']),
-    (MODE_FORCE, MODE_FORCE, ['BL INV']),
+@pytest.mark.parametrize('exclude, expected', [
+    ((), ['FONDO', 'PIZZA', 'CEDOLE', 'PLAIN']),
+    (('investment',), ['PIZZA', 'PLAIN']),
+    (('investment', CLASS_TODO), ['PIZZA']),
+    (('no such class',), ['FONDO', 'PIZZA', 'CEDOLE', 'PLAIN']),
 ])
-def test_apply_modes_treats_both_flags_alike(flagged, bl, inv, expected):
-    assert list(apply_modes(flagged, bl=bl, inv=inv)[COL_DESCR]) == expected
+def test_apply_classes(classified, exclude, expected):
+    assert list(apply_classes(classified, exclude)[COL_DESCR]) == expected
 
 
-def test_build_view_recomputes_running_total(flagged):
-    flagged = compute_importo(flagged)  # a stale total over all rows must not leak into the view
+def test_build_view_recomputes_running_total(classified):
+    classified = compute_importo(classified)  # a stale total over all rows must not leak into the view
 
-    view, m, q = build_view(flagged, inv=MODE_FORCE)
+    view, m, q = build_view(classified, exclude=('food', CLASS_TODO))
 
-    assert list(view[COL_DESCR]) == ['BL INV', 'INV']
+    assert list(view[COL_DESCR]) == ['FONDO', 'CEDOLE']
     assert list(view[COL_RUN_TOT]) == [-100.0, -97.0]
     assert m == pytest.approx(1.5)  # +3 EUR over 2 days
+
+
+def test_view_label():
+    assert view_label(()) == 'all classes'
+    assert view_label(('a', 'b')) == 'all but a, b'
+
+
+def test_sorted_classes_puts_todo_last():
+    assert sorted_classes(['todo', 'loan', 'investment', 'loan']) == ['investment', 'loan', 'todo']
 
 
 def test_sort_by_data_contabile_parses_strings():

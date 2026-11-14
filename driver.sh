@@ -130,6 +130,7 @@ print(','.join(tomllib.load(f)['project'].get('optional-dependencies', {})))")" 
 
 
 function pb_run_designer() {
+  pb_activate_venv
   nohup pyside6-designer "${dirRoot}"/piggy_bank/ui/*.ui &
 }
 

@@ -13,13 +13,13 @@
   <property name="windowTitle">
    <string>Form</string>
   </property>
-  <layout class="QVBoxLayout" name="verticalLayout" stretch="1,1">
+  <layout class="QVBoxLayout" name="verticalLayout" stretch="1,0,1">
    <item>
     <layout class="QHBoxLayout" name="qhl_classes" stretch="1,5">
      <item>
       <widget class="QGroupBox" name="qgb_settings_classes">
        <property name="title">
-        <string>Settings</string>
+        <string>Classes Settings</string>
        </property>
        <layout class="QVBoxLayout" name="verticalLayout_2">
         <item>
@@ -30,7 +30,17 @@
          </widget>
         </item>
         <item>
-         <widget class="QSpinBox" name="qsb_classes_number"/>
+         <widget class="QSpinBox" name="qsb_settings_classes_num"/>
+        </item>
+        <item>
+         <widget class="QLabel" name="label_3">
+          <property name="text">
+           <string>Seed</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSpinBox" name="qsb_settings_seed"/>
         </item>
         <item>
          <spacer name="verticalSpacer_2">
@@ -54,11 +64,18 @@
     </layout>
    </item>
    <item>
+    <widget class="Line" name="line">
+     <property name="orientation">
+      <enum>Qt::Orientation::Horizontal</enum>
+     </property>
+    </widget>
+   </item>
+   <item>
     <layout class="QHBoxLayout" name="qhl_periods" stretch="1,5">
      <item>
       <widget class="QGroupBox" name="qgb_settings_periods">
        <property name="title">
-        <string>Settings</string>
+        <string>Periods Settings</string>
        </property>
        <layout class="QVBoxLayout" name="verticalLayout_3">
         <item>

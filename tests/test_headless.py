@@ -25,9 +25,9 @@ ROWS = [
 
 
 @pytest.fixture
-def data(write_csv, monkeypatch):
+def data(write_csv, write_classes, monkeypatch):
     write_csv('a.csv', ROWS)
-    write_csv('blacklist.csv', [(None, None, None, 'GIROCONTO')])
+    write_classes(['*,*,*,GIROCONTO,blacklist', '*,*,*,TIME DEPOSIT,investment', '*,*,*,cedole,investment'])
     monkeypatch.setattr(go.Figure, 'show', lambda self, *a, **k: None)
     monkeypatch.setattr(plt, 'show', lambda *a, **k: plt.close('all'))
 
@@ -37,10 +37,10 @@ def test_driver_prints_every_view(data, capsys, caplog):
 
     runpy.run_path(str(ROOT / 'driver.py'), run_name='__main__')
 
-    assert 'Blacklisted: 1, Investments: 2' in capsys.readouterr().out
+    assert 'Classes: blacklist: 1, investment: 2, todo: 3' in capsys.readouterr().out
     from piggy_bank.etica import DEFAULT_VIEWS, view_label
-    for bl, inv in DEFAULT_VIEWS:
-        assert view_label(bl, inv) in caplog.text
+    for exclude in DEFAULT_VIEWS:
+        assert view_label(exclude) in caplog.text
 
 
 def test_notebook_cells_run(data):

@@ -41,12 +41,7 @@
      </column>
      <column>
       <property name="text">
-       <string>Blacklisted</string>
-      </property>
-     </column>
-     <column>
-      <property name="text">
-       <string>Investment</string>
+       <string>Class</string>
       </property>
      </column>
      <column>

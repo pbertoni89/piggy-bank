@@ -1,7 +1,7 @@
 from typing import Optional
 
 from PySide6.QtCore import Signal, QDate, QTimer, Slot
-from PySide6.QtWidgets import QWidget, QAbstractButton
+from PySide6.QtWidgets import QWidget, QCheckBox
 
 from piggy_bank.etica import *
 from piggy_bank.ui.filter_tools_rc import Ui_FilterTools
@@ -23,15 +23,8 @@ class QW_FilterTools(QWidget, Ui_FilterTools):
         self._default_out_range = (0, 1000)
         self._default_in_range = (0, 1000)
 
-        # Radio button groups and their default (checked) button both come from the .ui
-        self.__brg_defaults = {brg: brg.checkedButton() for brg in (self.brg_bl, self.brg_inv)}
-        for brg, qrb_default in self.__brg_defaults.items():
-            if qrb_default is None:
-                raise RuntimeError(f'No radio button is checked by default in {brg.objectName()}, fix the .ui')
-            # Each radio's mode is its objectName suffix, e.g. qrb_bl_force -> 'force'
-            for qrb in brg.buttons():
-                if self.__mode_of(qrb) not in MODES:
-                    raise RuntimeError(f'{qrb.objectName()} in {brg.objectName()} does not end with one of {MODES}, fix the .ui')
+        # One checkbox per class in saw_classes, built by setup_classes(): {class name: checkbox}
+        self.__qchk_classes = {}
 
         # --- Set up the debouncing timer ---
         self.__timer = QTimer(self)
@@ -46,25 +39,41 @@ class QW_FilterTools(QWidget, Ui_FilterTools):
         self.qrs_in.valueChanged.connect(self._on_qrs_in_valueChanged)
         self.qchk_out.toggled.connect(self._on_qchk_out_toggled)
         self.qchk_in.toggled.connect(self._on_qchk_in_toggled)
-        for brg in self.__brg_defaults:
-            brg.buttonToggled.connect(self._on_brg_buttonToggled)
 
         self.qle_description.textChanged.connect(self._on_qle_description_textChanged)
         self.qde_start.dateChanged.connect(self._on_qde_start_dateChanged)
         self.qde_end.dateChanged.connect(self._on_qde_end_dateChanged)
         self.qpb_reset.clicked.connect(self._on_qpb_reset_clicked)
 
-    @staticmethod
-    def __mode_of(qrb) -> str:
-        return qrb.objectName().rsplit('_', 1)[-1]
+    def setup_classes(self, df: pd.DataFrame):
+        """(Re)builds one checkbox per class of df[COL_CLASS] in saw_classes, labelled with its number of rows.
+        New classes start checked (accepted); a class already shown keeps its checked state across reloads."""
+        unchecked = set(self.excluded_classes())
+        layout = self.saw_classes.layout()
+        while layout.count():
+            widget = layout.takeAt(0).widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+        self.__qchk_classes = {}
 
-    def bl_mode(self) -> str:
-        """Blacklist filter mode currently selected: one of etica.MODES."""
-        return self.__mode_of(self.brg_bl.checkedButton())
+        counts = df[COL_CLASS].value_counts()
+        for cls in sorted_classes(counts.index):
+            qchk = QCheckBox(f'{cls} ({counts[cls]})', self.saw_classes)
+            qchk.setObjectName(f'qchk_class_{cls}')
+            qchk.setChecked(cls not in unchecked)
+            qchk.toggled.connect(self._on_qchk_class_toggled)
+            layout.addWidget(qchk)
+            self.__qchk_classes[cls] = qchk
+        layout.addStretch()
 
-    def inv_mode(self) -> str:
-        """Investment filter mode currently selected: one of etica.MODES."""
-        return self.__mode_of(self.brg_inv.checkedButton())
+    def class_checkboxes(self) -> dict:
+        """{class name: QCheckBox}, in display order."""
+        return dict(self.__qchk_classes)
+
+    def excluded_classes(self) -> set:
+        """The classes whose checkbox is unchecked: their rows are filtered out."""
+        return {cls for cls, qchk in self.__qchk_classes.items() if not qchk.isChecked()}
 
     def setup_dates(self, df: pd.DataFrame):
         """Sets qde_start and qde_end (and their reset defaults) to the min and max dates of the dataframe."""
@@ -123,15 +132,15 @@ class QW_FilterTools(QWidget, Ui_FilterTools):
         logging.info("Resetting UI filters to startup state...")
 
         # Block signals temporarily to prevent massive UI cascading
-        controls = [*self.__brg_defaults, self.qchk_in, self.qchk_out,
+        controls = [*self.__qchk_classes.values(), self.qchk_in, self.qchk_out,
                     self.qle_description, self.qde_start, self.qde_end, self.qrs_in, self.qrs_out]
 
         for widget in controls:
             widget.blockSignals(True)
 
         # Restore states
-        for qrb_default in self.__brg_defaults.values():
-            qrb_default.setChecked(True)
+        for qchk in self.__qchk_classes.values():
+            qchk.setChecked(True)
         self.qchk_in.setChecked(True)
         self.qchk_out.setChecked(True)
 
@@ -182,10 +191,10 @@ class QW_FilterTools(QWidget, Ui_FilterTools):
         self.qrs_in.setEnabled(checked)
         self.filters_updated.emit()
 
-    @Slot(QAbstractButton, bool)
-    def _on_brg_buttonToggled(self, button, checked):
-        if checked:
-            self.__timer.start()
+    @Slot(bool)
+    def _on_qchk_class_toggled(self, checked):
+        # Debounced, so unchecking several classes in a row filters once
+        self.__timer.start()
 
     @Slot(str)
     def _on_qle_description_textChanged(self, text):

@@ -1,5 +1,8 @@
 import os
+import csv
 import logging
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -32,33 +35,36 @@ COL_PLUS = 'Avere'
 COL_MINUS = 'Dare'
 COL_IMP = 'Importo'
 COL_DESCR = 'Descrizione'
-COL_BL = 'Blacklisted'
-COL_INV = 'Investment'
+COL_CLASS = 'Class'  # appended by cluster_merged(), never in merged.csv
 COL_OLS = 'OLS'
 
 FMT_DT = '%Y%m%d'
 FMT_DT_CSV = '%Y-%m-%d'  # Format used in CSV files for dates
-
-# Descrizione keywords marking investment-related transactions (matched case-insensitively)
-INV_REGEX = 'FONDI|PROVENTI|CEDOLE|DEPOSIT'
-
-# Filter modes for the Blacklisted and Investment flags, the same as the GUI All/Force/Veto radio buttons.
-# Both flags are at the same level: each one is filtered independently, then the two are AND-ed.
-MODE_ALL = 'all'      # no constraint
-MODE_FORCE = 'force'  # keep only flagged rows
-MODE_VETO = 'veto'    # drop flagged rows
-MODES = (MODE_ALL, MODE_FORCE, MODE_VETO)
 
 # Adjust this path to match your notebook location relative to the data
 # Currently assumes the notebook is in the same folder as the original script
 # TODO get as env var PB_DATA_DIR
 DATA_DIR = Path(__file__).parent.parent / 'data' / 'etica'
 
+# Files in DATA_DIR that are not bank statements
+MERGED_CSV = 'merged.csv'                  # output of load_data(), never read back
+CUSTOM_CLASSES_CSV = 'custom-classes.csv'  # rules of cluster_custom()
+BLACKLIST_CSV = 'blacklist.csv'            # archive only, superseded by CUSTOM_CLASSES_CSV
+NOT_STATEMENTS = {MERGED_CSV, CUSTOM_CLASSES_CSV, BLACKLIST_CSV}
+
+# Custom classes rules (CUSTOM_CLASSES_CSV): the statement columns plus the class name
+COL_RULE_CLASS = 'Classe'
+RULE_COLUMNS = [COL_DATA, COL_MINUS, COL_PLUS, COL_DESCR, COL_RULE_CLASS]
+RULE_ANY = '*'       # matches any value
+RULE_COMMENT = '#'   # a line starting with it is ignored
+CLASS_TODO = 'todo'  # movements no custom rule (nor, later, cluster_auto) classified
+
 
 def load_data() -> pd.DataFrame:
     """
     https://gemini.google.com/app/9e9e957a6d672e51
-    Executes the full data loading, conversion, merging, and blacklisting pipeline.
+    Executes the full data loading, conversion and merging pipeline, then rewrites merged.csv.
+    Returns the merged movements with cleaned descriptions and no classes: see cluster_merged().
     """
     _lg.debug(f"Starting data load pipeline from {DATA_DIR}")
 
@@ -76,10 +82,9 @@ def load_data() -> pd.DataFrame:
         except Exception as e:
             _lg.error(f"Could not convert {xls_path.name}: {e}")
 
-    # 2) Let csv_files be the set of *.csv files (excluding blacklist.csv, merged.csv, and variations)
+    # 2) Let csv_files be the set of *.csv files (excluding merged.csv, custom-classes.csv and blacklist.csv)
     # Load them into dfs_list
-    exclude_files = {'blacklist.csv', 'merged.csv'}
-    csv_files = [p for p in DATA_DIR.glob('*.csv') if p.name not in exclude_files]
+    csv_files = [p for p in DATA_DIR.glob('*.csv') if p.name not in NOT_STATEMENTS]
 
     dfs_list = []
     for csv_path in csv_files:
@@ -112,69 +117,11 @@ def load_data() -> pd.DataFrame:
         df_merged = sort_by_data_contabile(df_merged)
 
     # 4) Rewrite merged.csv as the dumping of df_merged
-    out_csv_path = DATA_DIR / 'merged.csv'
+    out_csv_path = DATA_DIR / MERGED_CSV
     df_merged.to_csv(out_csv_path, index=False)
     _lg.debug(f"Dumped merged data ({len(df_merged)} rows) to {out_csv_path.name}")
 
-    # 5) Process blacklist.csv if it exists
-    blacklist_path = DATA_DIR / 'blacklist.csv'
-    if blacklist_path.exists():
-        df_blacklist = pd.read_csv(blacklist_path)
-        _lg.debug(f"Loaded blacklist.csv with {len(df_blacklist)} rows")
-        df_blacklist[COL_DATA] = pd.to_datetime(df_blacklist[COL_DATA], errors='coerce')
-
-        # Remove rows that provide neither amounts nor a description wildcard
-        empty_mask = df_blacklist[COL_MINUS].isna() & df_blacklist[COL_PLUS].isna() & df_blacklist[COL_DESCR].isna()
-        if empty_mask.any():
-            _lg.error(f"Found {empty_mask.sum()} completely empty rows in blacklist.csv. Removing them")
-            df_blacklist = df_blacklist[~empty_mask]
-
-        # Add blacklist column to df_merged (default 0) and flag matches
-        df_merged[COL_BL] = 0
-
-        for _, bl_row in df_blacklist.iterrows():
-            # Check if this is a wildcard description match (Amounts are NaN, but Description exists)
-            is_wildcard = pd.isna(bl_row[COL_MINUS]) and pd.isna(bl_row[COL_PLUS]) and pd.notna(bl_row[COL_DESCR])
-
-            if is_wildcard:
-                wildcard_str = str(bl_row[COL_DESCR]).strip()
-                # Strictly contains wildcard logic
-                cond = df_merged[COL_DESCR].str.contains(wildcard_str, case=True, regex=False, na=False)
-
-                matches = df_merged[cond]
-                n_matches = len(matches)
-
-                if n_matches > 0:
-                    df_merged.loc[cond, COL_BL] = 1
-                    _lg.info(f"Blacklisted {n_matches} entries matching wildcard: '{wildcard_str}'")
-                else:
-                    _lg.error(f"No match found in data for wildcard blacklist entry: '{wildcard_str}'")
-
-            else:
-                # Build exact matching condition for df_merged based on available non-NaN values
-                cond = (df_merged[COL_DATA] == bl_row[COL_DATA])
-                if pd.notna(bl_row[COL_MINUS]):
-                    cond &= (df_merged[COL_MINUS] == bl_row[COL_MINUS])
-                if pd.notna(bl_row[COL_PLUS]):
-                    cond &= (df_merged[COL_PLUS] == bl_row[COL_PLUS])
-
-                matches = df_merged[cond]
-                n_matches = len(matches)
-
-                if n_matches == 1:
-                    df_merged.loc[cond, COL_BL] = 1
-                    descr, plus, minus = bl_row[COL_DESCR], bl_row[COL_PLUS], bl_row[COL_MINUS]
-                    imp = f"{(plus if pd.notna(plus) else minus)} EUR"
-                    _lg.info(f"Blacklisted entry matched: {bl_row[COL_DATA].date()}, {imp}, {descr}")
-                elif n_matches > 1:
-                    raise ValueError(f"Found {n_matches} matches in data for blacklist entry: {bl_row.to_dict()}")
-                else:
-                    _lg.error(f"No match found in data for blacklist entry: {bl_row.to_dict()}")
-    else:
-        # If no blacklist exists, nothing is blacklisted
-        df_merged[COL_BL] = 0
-
-    # 7) Strip away noisy text in Descrizione. TODO put in a separate config file for easier maintenance
+    # 5) Strip away noisy text in Descrizione. TODO put in a separate config file for easier maintenance
     stripped_parts = [("CARTA N. 416363******7346 - CIRCUITO VISA", ""),
                       ("Pagamenti paesi UE DEL", ""),
                       ("ADDEBITO DIRETTO CORE RCUR Prg.Car.:", ""),
@@ -185,11 +132,161 @@ def load_data() -> pd.DataFrame:
                       ("BONIFICO A VOSTRO FAVORE", "<BONIF>"),]
     for old, new in stripped_parts:
         df_merged[COL_DESCR] = df_merged[COL_DESCR].str.replace(old, new, regex=False).str.strip()
-
-    # 8) Flag investments (0/1) on the cleaned description, side by side with the blacklist column
-    df_merged[COL_INV] = df_merged[COL_DESCR].str.contains(INV_REGEX, case=False, na=False, regex=True).astype(int)
-    _lg.info(f"Flagged {df_merged[COL_INV].sum()} investment-related entries")
     return df_merged
+
+
+@dataclass
+class ClassRule:
+    """One line of CUSTOM_CLASSES_CSV. A None field is RULE_ANY; an amount of NaN means "must be blank"."""
+    line: int  # 1-based line number in the file, for log messages
+    date: pd.Timestamp | None
+    minus: float | None
+    plus: float | None
+    descr: str | None  # case-insensitive substring
+    cls: str
+
+    def mask(self, df: pd.DataFrame) -> pd.Series:
+        """Which rows of df (COL_DATA as datetime) the rule matches."""
+        keep = pd.Series(True, index=df.index)
+        if self.date is not None:
+            keep &= pd.to_datetime(df[COL_DATA], errors='coerce').dt.normalize() == self.date
+        for col, amount in ((COL_MINUS, self.minus), (COL_PLUS, self.plus)):
+            if amount is None:
+                continue
+            values = pd.to_numeric(df[col], errors='coerce')
+            # Compare to the cent, so float noise from the CSV round trip doesn't matter
+            keep &= values.isna() if np.isnan(amount) else (values - amount).abs() < 0.005
+        if self.descr is not None:
+            keep &= df[COL_DESCR].str.contains(self.descr, case=False, regex=False, na=False)
+        return keep
+
+    def __str__(self):
+        def show(v):
+            if v is None:
+                return RULE_ANY
+            if isinstance(v, float) and np.isnan(v):
+                return '<blank>'
+            return v.strftime(FMT_DT_CSV) if isinstance(v, pd.Timestamp) else str(v)
+        return (f"line {self.line} ({show(self.date)}, {show(self.minus)}, {show(self.plus)}, "
+                f"{show(self.descr)} -> {self.cls!r})")
+
+
+def read_custom_classes(path: Path) -> list:
+    """Parses a custom classes file into ClassRules, in file order.
+
+    The first line must be the header RULE_COLUMNS. Then, per field:
+    - Data contabile: RULE_ANY or a YYYY-MM-DD date.
+    - Dare, Avere: RULE_ANY, a number (matched to the cent), or blank, meaning the movement's one must be blank.
+    - Descrizione: RULE_ANY, blank (both match anything) or a case-insensitive substring.
+    - Classe: any non-blank text; every distinct text is a class, typos included.
+    Blank lines and lines starting with RULE_COMMENT are ignored. A malformed line is logged and skipped,
+    a wrong header raises ValueError."""
+    rules = []
+    header_seen = False
+    with open(path, newline='', encoding='utf-8-sig') as f:
+        for line_no, fields in enumerate(csv.reader(f), start=1):
+            fields = [x.strip() for x in fields]
+            if not any(fields) or fields[0].startswith(RULE_COMMENT):
+                continue
+            if not header_seen:
+                if fields != RULE_COLUMNS:
+                    raise ValueError(f"{path.name}: line {line_no} must be the header {','.join(RULE_COLUMNS)}, "
+                                     f"found {','.join(fields)}")
+                header_seen = True
+                continue
+            try:
+                rules.append(_parse_rule(line_no, fields))
+            except ValueError as e:
+                _lg.error(f"{path.name}: line {line_no} skipped: {e}. Line: {','.join(fields)}")
+    if not header_seen:
+        raise ValueError(f"{path.name}: no header line {','.join(RULE_COLUMNS)}")
+    return rules
+
+
+def _parse_rule(line_no: int, fields: list) -> ClassRule:
+    if len(fields) != len(RULE_COLUMNS):
+        raise ValueError(f"expected {len(RULE_COLUMNS)} fields, found {len(fields)}")
+    date_s, minus_s, plus_s, descr, cls = fields
+
+    if date_s == RULE_ANY:
+        date = None
+    else:
+        try:
+            date = pd.Timestamp(datetime.strptime(date_s, FMT_DT_CSV))
+        except ValueError:
+            raise ValueError(f"{COL_DATA} must be {RULE_ANY} or a YYYY-MM-DD date, not {date_s!r}") from None
+
+    def amount(col, s):
+        if s == RULE_ANY:
+            return None
+        if s == '':
+            return float('nan')
+        try:
+            return float(s)
+        except ValueError:
+            raise ValueError(f"{col} must be {RULE_ANY}, blank or a number, not {s!r}") from None
+
+    if not cls:
+        raise ValueError(f"{COL_RULE_CLASS} is blank")
+    return ClassRule(line=line_no, date=date, minus=amount(COL_MINUS, minus_s), plus=amount(COL_PLUS, plus_s),
+                     descr=None if descr in ('', RULE_ANY) else descr, cls=cls)
+
+
+def cluster_custom(df: pd.DataFrame, path: Path | None = None) -> pd.Series:
+    """Classes from the custom rules (default DATA_DIR/CUSTOM_CLASSES_CSV, optional): one per row of df,
+    None where no rule matched. Each rule is applied to every movement, in file order. The first rule
+    matching a movement classifies it for good: a later rule matching it with a different class logs
+    an error and changes nothing."""
+    classes = pd.Series(None, index=df.index, dtype=object)
+    path = path if path is not None else DATA_DIR / CUSTOM_CLASSES_CSV
+    if not path.exists():
+        _lg.warning(f"No {path.name} in {path.parent}: no custom classes")
+        return classes
+    rules = read_custom_classes(path)
+    _lg.debug(f"Loaded {len(rules)} custom class rules from {path.name}")
+    if df.empty:
+        return classes
+
+    by_line = pd.Series(0, index=df.index)  # the rule that classified each row
+    for rule in rules:
+        mask = rule.mask(df)
+        if not mask.any():
+            _lg.warning(f"{path.name}: rule {rule} matches no movement")
+            continue
+        taken = mask & classes.notna()
+        for idx in df.index[taken & (classes != rule.cls)]:
+            row = df.loc[idx]
+            _lg.error(f"{path.name}: rule {rule} matches a movement already classified {classes[idx]!r} "
+                      f"by line {by_line[idx]}, keeping {classes[idx]!r}: {row[COL_DATA]:%Y-%m-%d}, "
+                      f"{row[COL_PLUS] if pd.notna(row[COL_PLUS]) else row[COL_MINUS]} EUR, {row[COL_DESCR]}")
+        new = mask & classes.isna()
+        classes[new] = rule.cls
+        by_line[new] = rule.line
+        _lg.info(f"{path.name}: rule {rule} classified {new.sum()} movements"
+                 + (f" ({taken.sum()} already classified)" if taken.any() else ''))
+    return classes
+
+
+def cluster_auto(df: pd.DataFrame, classes: pd.Series) -> pd.Series:
+    """Classes for the rows of df that classes leaves as None. Not implemented yet: returns classes as is."""
+    return classes
+
+
+def cluster_merged(df_merged: pd.DataFrame) -> pd.DataFrame:
+    """df_clustered: a copy of df_merged (the output of load_data()) with COL_CLASS appended.
+    Custom classes first, then automatic ones for the rest; whatever is left is CLASS_TODO."""
+    classes = cluster_custom(df_merged)
+    classes = cluster_auto(df_merged, classes)
+    df_clustered = df_merged.copy()
+    df_clustered[COL_CLASS] = classes.fillna(CLASS_TODO).astype(str)
+    counts = df_clustered[COL_CLASS].value_counts()
+    _lg.info('Classes: ' + ', '.join(f'{c} {counts[c]}' for c in sorted_classes(counts.index)))
+    return df_clustered
+
+
+def sorted_classes(classes) -> list:
+    """Distinct class names in display order: alphabetical, CLASS_TODO last."""
+    return sorted(set(classes), key=lambda c: (c == CLASS_TODO, c))
 
 
 def sort_by_data_contabile(df: pd.DataFrame) -> pd.DataFrame:
@@ -415,32 +512,18 @@ def plot_candlestick_interactive(df: pd.DataFrame, lbl: str) -> None:
     fig.show()
 
 
-def mode_keeps(mode: str, flag: int) -> bool:
-    """Whether a row with this 0/1 flag passes the filter mode."""
-    if mode == MODE_ALL:
-        return True
-    if mode == MODE_FORCE:
-        return flag == 1
-    if mode == MODE_VETO:
-        return flag == 0
-    raise ValueError(f'Unknown filter mode {mode!r}, expected one of {MODES}')
+def apply_classes(df: pd.DataFrame, exclude=()) -> pd.DataFrame:
+    """Drops the rows whose COL_CLASS is in exclude, exactly as unchecking classes in the GUI does."""
+    return df[~df[COL_CLASS].isin(exclude)].reset_index(drop=True)
 
 
-def apply_modes(df: pd.DataFrame, bl: str = MODE_ALL, inv: str = MODE_ALL) -> pd.DataFrame:
-    """Filters df on the Blacklisted and Investment flags, exactly as the GUI radio buttons do."""
-    keep = pd.Series(True, index=df.index)
-    for mode, col in ((bl, COL_BL), (inv, COL_INV)):
-        keep &= df[col].map(lambda flag: mode_keeps(mode, flag))
-    return df[keep].reset_index(drop=True)
+def view_label(exclude=()) -> str:
+    return 'all classes' if not exclude else 'all but ' + ', '.join(exclude)
 
 
-def view_label(bl: str = MODE_ALL, inv: str = MODE_ALL) -> str:
-    return f'BL {bl}, INV {inv}'
-
-
-def build_view(df: pd.DataFrame, bl: str = MODE_ALL, inv: str = MODE_ALL) -> Tuple[pd.DataFrame, float, float]:
-    """Filters df by modes, then computes its own running total and OLS fit. Returns (view, m, q)."""
-    rv = apply_modes(df, bl=bl, inv=inv).drop(columns=[COL_RUN_TOT, COL_OLS], errors='ignore')
+def build_view(df: pd.DataFrame, exclude=()) -> Tuple[pd.DataFrame, float, float]:
+    """Filters df by class, then computes its own running total and OLS fit. Returns (view, m, q)."""
+    rv = apply_classes(df, exclude).drop(columns=[COL_RUN_TOT, COL_OLS], errors='ignore')
     rv = compute_importo(rv)
     return compute_ols(rv)
 
@@ -471,10 +554,10 @@ def plot_view_bars(df: pd.DataFrame, lbl: str) -> None:
         plt.show()
 
 
-# Views shown by driver.py and the notebook: (bl mode, inv mode) pairs, edit to taste
+# Views shown by driver.py and the notebook: the classes each one excludes. Edit to taste:
+# the names are those of custom-classes.csv, an unknown one just excludes nothing.
 DEFAULT_VIEWS = [
-    (MODE_ALL, MODE_ALL),
-    (MODE_VETO, MODE_ALL),
-    (MODE_VETO, MODE_VETO),
-    (MODE_ALL, MODE_FORCE),
+    (),
+    ('investment',),
+    ('blacklist', 'investment'),
 ]

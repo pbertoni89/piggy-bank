@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from piggy_bank import etica
-from piggy_bank.etica import COL_DATA, COL_MINUS, COL_PLUS, COL_DESCR
+from piggy_bank.etica import COL_DATA, COL_MINUS, COL_PLUS, COL_DESCR, CUSTOM_CLASSES_CSV, RULE_COLUMNS
 
 HEADER = [COL_DATA, COL_MINUS, COL_PLUS, COL_DESCR]
 
@@ -25,4 +25,14 @@ def write_csv(data_dir):
     def _write(name: str, rows: list):
         pd.DataFrame(rows, columns=HEADER).to_csv(data_dir / name, index=False)
         return data_dir / name
+    return _write
+
+
+@pytest.fixture
+def write_classes(data_dir):
+    """Writes custom-classes.csv in DATA_DIR: the header, then each line verbatim (e.g. '*,*,*,PIZZA,food')."""
+    def _write(lines: list, header: str = ','.join(RULE_COLUMNS)):
+        path = data_dir / CUSTOM_CLASSES_CSV
+        path.write_text('\n'.join([header, *lines]) + '\n')
+        return path
     return _write

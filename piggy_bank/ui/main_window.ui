@@ -98,7 +98,7 @@
      <string>File</string>
     </property>
     <addaction name="qa_import_data"/>
-    <addaction name="qa_import_blacklist"/>
+    <addaction name="qa_import_custom_classes"/>
     <addaction name="separator"/>
     <addaction name="qa_export_data"/>
    </widget>
@@ -121,7 +121,7 @@
     <string>Export data</string>
    </property>
   </action>
-  <action name="qa_import_blacklist">
+  <action name="qa_import_custom_classes">
    <property name="text">
     <string>Import blacklist</string>
    </property>

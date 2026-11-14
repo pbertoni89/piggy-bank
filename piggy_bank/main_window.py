@@ -87,7 +87,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         # Menu actions
         self.qa_import_data.triggered.connect(self._on_qa_import_data_triggered)
-        self.qa_import_blacklist.triggered.connect(self._on_qa_import_blacklist_triggered)
+        self.qa_import_custom_classes.triggered.connect(self._on_qa_import_custom_classes_triggered)
         self.qa_export_data.triggered.connect(self._on_qa_export_data_triggered)
 
         # Initial render
@@ -100,8 +100,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.__idx_out = df.columns.get_loc(COL_MINUS)
         self.__idx_in = df.columns.get_loc(COL_PLUS)
         self.__idx_desc = df.columns.get_loc(COL_DESCR)
-        self.__idx_bl = df.columns.get_loc(COL_BL)
-        self.__idx_inv = df.columns.get_loc(COL_INV)
+        self.__idx_class = df.columns.get_loc(COL_CLASS)
         self.__idx_saldo = df.columns.get_loc(COL_RUN_TOT)
 
         self._populate_table(df)
@@ -112,17 +111,17 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         header.setSectionResizeMode(self.__idx_out, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(self.__idx_in, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(self.__idx_desc, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(self.__idx_bl, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(self.__idx_inv, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(self.__idx_class, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(self.__idx_saldo, QHeaderView.ResizeMode.Fixed)
 
         self.ui_ledger.qtw_ledger.setColumnWidth(self.__idx_out, 100)
         self.ui_ledger.qtw_ledger.setColumnWidth(self.__idx_in, 100)
         self.ui_ledger.qtw_ledger.setColumnWidth(self.__idx_saldo, 100)
 
-        # Date and amount ranges follow the (possibly new) data
+        # Date and amount ranges, and the class checkboxes, follow the (possibly new) data
         self.ft.setup_dates(df)
         self.ft.setup_sliders(df)
+        self.ft.setup_classes(df)
 
         # Enable sorting after population
         self.ui_ledger.qtw_ledger.setSortingEnabled(True)
@@ -133,7 +132,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._apply_filters()
 
     def _reload_data(self):
-        """Runs the whole load_data() pipeline again and refreshes every widget."""
+        """Runs the whole load_data() + cluster_merged() pipeline again and refreshes every widget."""
         self._show_data(self.get_data_source())
 
     def _import_and_reload(self, src: Path, dst: Path, touched: list) -> bool:
@@ -180,16 +179,17 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self._import_and_reload(src, dst, [dst, dst_csv])
 
     @Slot()
-    def _on_qa_import_blacklist_triggered(self):
-        path, _ = QFileDialog.getOpenFileName(self, 'Import blacklist', str(Path.home()), 'CSV files (*.csv)')
+    def _on_qa_import_custom_classes_triggered(self):
+        # Imports the custom classes rules, which superseded the blacklist
+        path, _ = QFileDialog.getOpenFileName(self, 'Import custom classes', str(Path.home()), 'CSV files (*.csv)')
         if not path:
             return
-        dst = etica.DATA_DIR / 'blacklist.csv'
+        dst = etica.DATA_DIR / CUSTOM_CLASSES_CSV
         self._import_and_reload(Path(path), dst, [dst])
 
     @Slot()
     def _on_qa_export_data_triggered(self):
-        src = etica.DATA_DIR / 'merged.csv'
+        src = etica.DATA_DIR / MERGED_CSV
         if not src.exists():
             QMessageBox.warning(self, 'Export data', f'{src} does not exist yet: no data has been loaded.')
             return
@@ -246,8 +246,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         start_date_str = self.ft.qde_start.date().toString("yyyy-MM-dd")
         end_date_str = self.ft.qde_end.date().toString("yyyy-MM-dd")
 
-        bl_mode = self.ft.bl_mode()
-        inv_mode = self.ft.inv_mode()
+        excluded_classes = self.ft.excluded_classes()
 
         out_min, out_max = self.ft.qrs_out.value()
         in_min, in_max = self.ft.qrs_in.value()
@@ -265,8 +264,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             out_item = self.ui_ledger.qtw_ledger.item(row_idx, self.__idx_out)
             in_item = self.ui_ledger.qtw_ledger.item(row_idx, self.__idx_in)
             desc_item = self.ui_ledger.qtw_ledger.item(row_idx, self.__idx_desc)
-            bl_item = self.ui_ledger.qtw_ledger.item(row_idx, self.__idx_bl)
-            inv_item = self.ui_ledger.qtw_ledger.item(row_idx, self.__idx_inv)
+            class_item = self.ui_ledger.qtw_ledger.item(row_idx, self.__idx_class)
 
             date_val = date_item.text() if date_item else ""
             out_val_str = out_item.text().strip() if out_item else ""
@@ -274,14 +272,13 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
             # Lowercase for case-insensitive free-text search
             desc_val_lower = desc_item.text().lower() if desc_item else ""
-            bl_val = int(bl_item.text().strip()) if (bl_item and bl_item.text().strip()) else 0
-            inv_val = int(inv_item.text().strip()) if (inv_item and inv_item.text().strip()) else 0
+            class_val = class_item.text() if class_item else ""
 
             is_out_row = bool(out_val_str)
             is_in_row = bool(in_val_str)
 
-            # Filter checks: Blacklisted and Investment flags, same rule as etica.apply_modes()
-            if not (mode_keeps(bl_mode, bl_val) and mode_keeps(inv_mode, inv_val)):
+            # Filter checks: unchecked classes, same rule as etica.apply_classes()
+            if class_val in excluded_classes:
                 self.ui_ledger.qtw_ledger.setRowHidden(row_idx, True)
                 continue
 
@@ -376,7 +373,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         logging.info(f"Filters applied:\n\tout checked={out_checked}, in checked={in_checked}\n\t"
                      f"out range=({out_min}, {out_max}), in range=({in_min}, {in_max})\n\t"
                      f"Description contains='{desc_text}', Date range=({start_date_str}, {end_date_str})\n\t"
-                     f"Modes=(bl: {bl_mode}, inv: {inv_mode})")
+                     f"Excluded classes={sorted(excluded_classes)}")
 
         self.df_plot = pd.DataFrame(plot_data)
         self._update_plot()
@@ -525,14 +522,15 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     @staticmethod
     def get_data_source() -> pd.DataFrame:
+        """df_clustered (see etica.cluster_merged()) plus the running total, with dates as YYYY-MM-DD strings."""
         logging.debug("Loading data pipeline...")
-        _df_all = load_data()
+        _df_all = cluster_merged(load_data())
 
         # Provide Running Total dynamically into DataFrame right from load stage
         _df_all[COL_RUN_TOT] = (pd.to_numeric(_df_all[COL_PLUS], errors='coerce').fillna(0) + \
                                 pd.to_numeric(_df_all[COL_MINUS], errors='coerce').fillna(0)).cumsum()
 
-        expected_cols = [COL_DATA, COL_PLUS, COL_MINUS, COL_DESCR, COL_BL, COL_INV, COL_RUN_TOT]
+        expected_cols = [COL_DATA, COL_PLUS, COL_MINUS, COL_DESCR, COL_CLASS, COL_RUN_TOT]
         missing_cols = [col for col in expected_cols if col not in _df_all.columns]
 
         if missing_cols:

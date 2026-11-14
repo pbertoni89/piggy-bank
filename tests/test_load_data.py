@@ -2,7 +2,7 @@ import pandas as pd
 import pytest
 
 from piggy_bank import etica
-from piggy_bank.etica import COL_DATA, COL_MINUS, COL_PLUS, COL_DESCR, COL_BL, COL_INV, load_data
+from piggy_bank.etica import COL_DATA, COL_MINUS, COL_PLUS, COL_DESCR, load_data
 
 
 def test_merges_and_sorts_all_statements(write_csv, data_dir):
@@ -18,7 +18,8 @@ def test_merges_and_sorts_all_statements(write_csv, data_dir):
 
     assert list(df[COL_DESCR]) == ['BREAD', 'SALARY', 'COFFEE']
     assert pd.api.types.is_datetime64_any_dtype(df[COL_DATA])
-    assert (df[COL_BL] == 0).all()
+    # Classes are cluster_merged()'s job
+    assert list(df.columns) == [COL_DATA, COL_MINUS, COL_PLUS, COL_DESCR]
 
 
 def test_same_date_order_is_deterministic(write_csv):
@@ -95,89 +96,12 @@ def test_description_noise_is_stripped(write_csv):
     assert list(df[COL_DESCR]) == ['<BONIF> MARIO', '<BONIF> LUIGI']
 
 
-def test_investments_are_flagged(write_csv):
-    write_csv('a.csv', [
-        ('2025-01-01', -100.0, None, 'SOTTOSCRIZIONE FONDI'),
-        ('2025-01-02', -5.0, None, 'PIZZA'),
-        ('2025-01-03', None, 3.0, 'CEDOLE BTP'),
-        ('2025-01-04', None, 1.0, 'Cedole semestrali'),  # case insensitive
-        ('2025-01-05', -50.0, None, 'giroconto deposito'),  # case insensitive substring: DEPOSIT
-        ('2025-01-06', -1000.0, None, 'SOTTOSCRIZIONE TIME DEPOSIT'),
-        ('2025-01-07', None, 1000.0, 'RIMBORSO PARTITA TIME DEPOSIT'),
-    ])
-
-    df = load_data()
-
-    assert list(df[COL_INV]) == [1, 0, 1, 1, 1, 1, 1]
-
-
-def test_investment_and_blacklist_are_independent(write_csv):
-    write_csv('a.csv', [('2025-01-01', -100.0, None, 'VERSAMENTO FONDI'), ('2025-01-02', -5.0, None, 'PIZZA')])
-    write_csv('blacklist.csv', [(None, None, None, 'PIZZA')])
-
-    df = load_data()
-
-    assert list(df[COL_INV]) == [1, 0]
-    assert list(df[COL_BL]) == [0, 1]
-
-
-def test_no_blacklist_file(write_csv):
+def test_rules_and_archived_blacklist_are_not_statements(write_csv, write_classes, data_dir):
     write_csv('a.csv', [('2025-01-01', -1.0, None, 'X')])
+    write_csv('blacklist.csv', [(None, None, None, 'X')])
+    write_classes(['*,*,*,X,misc'])
 
     df = load_data()
 
-    assert list(df[COL_BL]) == [0]
-    assert COL_DESCR in df.columns
-
-
-class TestBlacklist:
-
-    @pytest.fixture
-    def statements(self, write_csv):
-        write_csv('a.csv', [
-            ('2025-01-01', -100.0, None, 'VERSAMENTO FONDO'),
-            ('2025-01-01', -7.0, None, 'PIZZA'),
-            ('2025-01-02', None, 100.0, 'PROVENTI FONDO'),
-            ('2025-01-03', -3.0, None, 'GIROCONTO verso deposito'),
-            ('2025-01-04', -4.0, None, 'GIROCONTO verso deposito'),
-        ])
-
-    def flagged(self, df):
-        return list(df.loc[df[COL_BL] == 1, COL_DESCR])
-
-    def test_exact_entry_by_dare(self, statements, write_csv):
-        write_csv('blacklist.csv', [('2025-01-01', -100.0, None, 'any note')])
-
-        assert self.flagged(load_data()) == ['VERSAMENTO FONDO']
-
-    def test_exact_entry_by_avere(self, statements, write_csv):
-        write_csv('blacklist.csv', [('2025-01-02', None, 100.0, None)])
-
-        assert self.flagged(load_data()) == ['PROVENTI FONDO']
-
-    def test_wildcard_entry_is_case_sensitive_substring(self, statements, write_csv):
-        write_csv('blacklist.csv', [(None, None, None, 'GIROCONTO')])
-
-        assert self.flagged(load_data()) == ['GIROCONTO verso deposito'] * 2
-
-    def test_wildcard_without_match_flags_nothing(self, statements, write_csv):
-        write_csv('blacklist.csv', [(None, None, None, 'giroconto')])
-
-        assert self.flagged(load_data()) == []
-
-    def test_exact_entry_without_match_flags_nothing(self, statements, write_csv):
-        write_csv('blacklist.csv', [('2030-01-01', -1.0, None, None)])
-
-        assert self.flagged(load_data()) == []
-
-    def test_ambiguous_exact_entry_raises(self, write_csv):
-        write_csv('a.csv', [('2025-01-05', -9.0, None, 'SHOP A'), ('2025-01-05', -9.0, None, 'SHOP B')])
-        write_csv('blacklist.csv', [('2025-01-05', -9.0, None, None)])
-
-        with pytest.raises(ValueError, match='2 matches'):
-            load_data()
-
-    def test_empty_rows_are_dropped(self, statements, write_csv):
-        write_csv('blacklist.csv', [('2025-01-01', None, None, None), ('2025-01-01', -7.0, None, None)])
-
-        assert self.flagged(load_data()) == ['PIZZA']
+    assert len(df) == 1
+    assert list(pd.read_csv(data_dir / 'merged.csv').columns) == [COL_DATA, COL_MINUS, COL_PLUS, COL_DESCR]

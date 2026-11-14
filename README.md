@@ -9,13 +9,14 @@ A desktop app to explore your **Banca Etica** current account. Feed it the yearl
 ## Features
 
 - **One ledger from many exports.** Drop yearly (or partial) exports in, and overlapping rows are merged away.
-- **Live filters.** Filter by date range (with a calendar), description text, incoming/outgoing direction, amount ranges, and two flags: Blacklisted and Investment.
-- **Running total over what you see.** The `Running Total` column and every stat and plot are recomputed over the visible rows only. "How much did investments yield?" is just one click on a filter.
+- **Live filters.** Filter by date range (with a calendar), description text, incoming/outgoing direction, amount ranges, and class (one checkbox per class).
+- **Running total over what you see.** The `Running Total` column and every stat and plot are recomputed over the visible rows only. "How much did investments yield?" is just a few clicks on the class filter.
 - **Stats panel.** Count, min, max, sum, median, mean and std for all, outgoing and incoming movements. Sum, median and mean of *All* are green when ≥ 0 and red when negative.
 - **Interactive plots** (Plotly):
   - *Line plots*: running total with a linear trend line, and weekly/monthly/yearly balance candlesticks.
   - *Stats plots*: amount histograms; totals by day of week, day of month or month of year; expense and income box plots.
-- **File menu** to import new exports and blacklists, and to export the merged ledger.
+- **Classes.** Every movement gets a class from your own rules (`custom-classes.csv`), e.g. `investment` or `loan`. The rest is `todo`, for now.
+- **File menu** to import new exports and class rules, and to export the merged ledger.
 
 ## Quick start
 
@@ -39,22 +40,9 @@ Press **Ctrl+C** in the terminal to quit cleanly (exit code 130).
 
 ## How filtering works
 
-Every movement carries two independent 0/1 flags, shown as table columns:
+Every movement has a **Class**, shown as a table column (see [Custom classes](#custom-classes)). The filter panel has one checkbox per class, labelled with its number of movements. All of them start checked; uncheck a class to hide its movements.
 
-| Flag | Set when |
-|------|----------|
-| **Blacklisted** | The movement matches an entry of your `blacklist.csv` (see [Blacklist](#blacklist)). |
-| **Investment** | Its description contains `FONDI`, `PROVENTI`, `CEDOLE` or `DEPOSIT`, in any letter case. |
-
-Each flag has its own radio group, and both work the same way:
-
-| Mode | Shows |
-|------|-------|
-| **All** | Every movement, the flag is ignored |
-| **Force** | Only flagged movements |
-| **Veto** | Only movements that are *not* flagged |
-
-The two groups combine with AND, along with the other filters. For example, Blacklist *Veto* plus Investments *Veto* gives your everyday income and spending, without one-off transfers or money moved into investments. **Reset Filters** restores everything to its startup state.
+Classes combine with AND with the other filters. For example, unchecking `investment` gives your everyday income and spending, without money moved into investments. **Reset Filters** restores everything to its startup state, all classes checked included.
 
 ## Your data
 
@@ -64,31 +52,48 @@ Everything lives in `data/etica/`. This folder is gitignored, so your statements
 |------|---------|
 | `*.xls` | Raw exports from home banking. On load they are converted to `*.csv` and **the `.xls` is deleted**, so keep the originals elsewhere. |
 | `*.csv` | Statements in `Data contabile,Dare,Avere,Descrizione` format (Banca Etica's columns: date, out, in, description). All of them are merged. |
-| `blacklist.csv` | Optional. Movements to flag as Blacklisted. |
-| `merged.csv` | Output only: the merged, sorted ledger, rewritten on every load. |
+| `custom-classes.csv` | Optional. Rules giving movements a class (see [Custom classes](#custom-classes)). |
+| `blacklist.csv` | Archive only, superseded by `custom-classes.csv`. Never read. |
+| `merged.csv` | Output only: the merged, sorted ledger, rewritten on every load. It has no classes. |
 
 Files with any other extension (e.g. `*.csv.bk`) are ignored, which is handy for parking old exports.
 
 The **File** menu manages the folder for you:
 
 - **Import data**: copies a `.xls` export in, converts it and refreshes everything. If a statement with that name already exists (e.g. a newer export of the current year), you're asked before it gets replaced.
-- **Import blacklist**: replaces `blacklist.csv` with the chosen `.csv` and refreshes everything.
+- **Import blacklist**: replaces `custom-classes.csv` with the chosen `.csv` and refreshes everything.
 - **Export data**: saves a copy of `merged.csv` wherever you like.
 
-If an import breaks loading (an unreadable file, or a blacklist entry matching more than one movement), it is rolled back and the previous data stays as it was.
+If an import breaks loading (an unreadable file, or a rules file without the right header), it is rolled back and the previous data stays as it was.
 
-### Blacklist
+### Custom classes
 
-`blacklist.csv` uses the same columns as the statements. Each row is one of:
-
-- **Exact entry**: `Data contabile` plus `Dare` and/or `Avere`. It must match exactly one movement, otherwise loading fails. `Descrizione` is free text for your own reference.
-- **Wildcard entry**: `Dare` and `Avere` left empty. It flags every movement whose description contains the `Descrizione` text (case-sensitive). The date column is ignored; `*` is a convenient marker.
+`custom-classes.csv` is a list of rules, with the statement columns plus `Classe`:
 
 ```csv
-Data contabile,Dare,Avere,Descrizione
-2026-01-14,-20000,,Versamento fondo
-*,,,GIROCONTO
+Data contabile,Dare,Avere,Descrizione,Classe
+# Lent to a friend
+2026-04-14,-1000,,*,loan
+*,*,*,RIMBORSO PARTITA TIME DEPOSIT,investment
+*,*,*,SOTTOSCRIZIONE TIME DEPOSIT,investment
 ```
+
+A rule matches a movement when every field matches:
+
+| Field | `*` | blank | anything else |
+|-------|-----|-------|---------------|
+| `Data contabile` | any date | invalid | a `YYYY-MM-DD` date |
+| `Dare`, `Avere` | any amount | the movement's one must be blank too | that amount, to the cent |
+| `Descrizione` | anything | anything | contained in the description, in any letter case |
+| `Classe` | | invalid | the class name |
+
+- Every distinct `Classe` text is a class, typos included: `loans` is not `loan`.
+- Rules apply in file order, each one to every movement. The first rule that matches a movement classifies it for good: a later rule giving it a *different* class logs an error and changes nothing.
+- Movements no rule matches are `todo`.
+- Descriptions are matched after cleanup, i.e. as shown in the ledger (e.g. `<BONIF>`).
+- Lines starting with `#` and blank lines are ignored. A malformed line (wrong number of fields, bad date or amount, no class) is logged and skipped. A wrong header makes loading fail.
+
+Classes are recomputed from `merged.csv` and the rules on every load, so after editing the file just restart (or import it).
 
 ### Known limitations
 
@@ -104,7 +109,7 @@ Data contabile,Dare,Avere,Descrizione
 ./driver.sh --build-gui                        # compile piggy_bank/ui/*.ui into *_rc.py
 ./driver.sh --run-gui                          # launch the app (doesn't build the UI)
 ./driver.sh --build-run-tests                  # build the UI and run the test suite
-./driver.sh --build-run-tests -k blacklist -v  # extra arguments are passed to pytest
+./driver.sh --build-run-tests -k classes -v    # extra arguments are passed to pytest
 ./driver.sh --run-designer                     # open the .ui files in Qt Designer
 ./driver.sh --deprecated-headless              # headless summary (deprecated, see below)
 ```
@@ -119,7 +124,7 @@ Once installed, the app can also be launched as `piggy-bank`.
 
 ```
 piggy_bank/
-  etica.py         data pipeline and computations (no Qt): load_data, filter modes, OLS, candlesticks
+  etica.py         data pipeline and computations (no Qt): load_data, classes, OLS, candlesticks
   main_window.py   main window, ledger filtering, plots, File menu
   filter_tools.py  the filter panel
   aggr_stats.py    the stats boxes
@@ -130,7 +135,7 @@ piggy_bank/
 tests/
 ```
 
-**Headless script and notebook.** These are deprecated but kept working. `./driver.sh --deprecated-headless` and `piggy_bank/etica.ipynb` use the same flags and All/Force/Veto modes as the app. They compare a few "views" (`etica.DEFAULT_VIEWS`), e.g. *no blacklisted, no investments* vs *investments only*. For the notebook, open it in JupyterLab (`--update-venv` installs the `notebook` extra too, or use `./driver.sh --docker-jupyter`).
+**Headless script and notebook.** These are deprecated but kept working. `./driver.sh --deprecated-headless` and `piggy_bank/etica.ipynb` use the same classes as the app. They compare a few "views" (`etica.DEFAULT_VIEWS`), each one the tuple of classes it leaves out, like unchecking them in the app. For the notebook, open it in JupyterLab (`--update-venv` installs the `notebook` extra too, or use `./driver.sh --docker-jupyter`).
 
 ## License
 
