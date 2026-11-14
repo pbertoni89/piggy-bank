@@ -9,7 +9,7 @@ pytest.importorskip('piggy_bank.ui.filter_tools_rc', reason='UI not built, run .
 from piggy_bank.aggr_stats import QW_AggrStats  # noqa: E402
 from piggy_bank.filter_tools import QW_FilterTools  # noqa: E402
 from piggy_bank.qw_misc import NumericTableWidgetItem, apply_color_scheme, ENV_COLOR_SCHEME, QW_Periods, QW_Classes, QW_MovementsTable, \
-    StaticColumnsTable  # noqa: E402
+    StaticColumnsTable, assign_class_colors, class_pie_figure, CLASS_PALETTE, CLASS_OTHER, CLASS_OTHER_COLOR  # noqa: E402
 
 
 @pytest.fixture
@@ -518,3 +518,64 @@ def test_classes_aggr_stats_scroll_vertically_only(qtbot):
     assert sa.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
     assert sa.verticalScrollBar().maximum() > 0  # 12 boxes can't fit in 400 px
     assert sa.viewport().width() >= w.qsac_aggr.layout().sizeHint().width()  # nothing clipped sideways
+
+
+def pie(fig) -> dict:
+    """{label: (value, colour)} of a class pie figure."""
+    trace = fig.data[0]
+    return {lbl: (val, col) for lbl, val, col in zip(trace.labels, trace.values, trace.marker.colors)}
+
+
+def test_class_colors_by_volume_whole_data():
+    # Volume = |Out| + In: food 15, todo 100, bank 1
+    colors = assign_class_colors(movements(ROWS))
+
+    assert colors == {CLASS_TODO: CLASS_PALETTE[0], 'food': CLASS_PALETTE[1], 'bank': CLASS_PALETTE[2]}
+
+
+def test_class_colors_past_the_palette_fold_into_other():
+    rows = [('2025-01-02', -float(i + 1), 0.0, 'X', f'c{i:02d}') for i in range(10)]
+    colors = assign_class_colors(movements(rows))
+
+    # 7 colours for the 7 largest, the 8th slot is Other's grey
+    assert list(colors) == [f'c{i:02d}' for i in range(9, 2, -1)]
+    fig = class_pie_figure(movements(rows), COL_OUT, colors, 'Out')
+    slices = pie(fig)
+    assert list(slices) == [f'c{i:02d}' for i in range(9, 2, -1)] + [CLASS_OTHER]
+    assert slices[CLASS_OTHER] == (1 + 2 + 3, CLASS_OTHER_COLOR)
+    assert 'c00, c01, c02' in fig.data[0].customdata[-1]
+
+
+def test_class_pie_out_and_in():
+    df = movements(ROWS)
+    colors = assign_class_colors(df)
+
+    out = class_pie_figure(df, COL_OUT, colors, 'Out by class')
+    # Absolute sums, in colour order, the todo class has no outflow
+    assert pie(out) == {'food': (15.0, CLASS_PALETTE[1]), 'bank': (1.0, CLASS_PALETTE[2])}
+    assert out.layout.title.text == 'Out by class: 16.00 EUR'
+    assert list(out.data[0].customdata) == ['2 movements', '1 movements']
+    assert pie(class_pie_figure(df, COL_IN, colors, 'In')) == {CLASS_TODO: (100.0, CLASS_PALETTE[0])}
+
+
+def test_class_pie_nothing_to_show():
+    df = movements([r for r in ROWS if r[2] == 0.0])  # no inflows
+
+    assert class_pie_figure(df, COL_IN, assign_class_colors(df), 'In') is None
+
+
+def test_classes_pies_follow_visible_rows_without_repainting(qtbot):
+    w = QW_Classes()
+    qtbot.addWidget(w)
+    w.set_class_colors(assign_class_colors(movements(ROWS)))  # from the whole data, as MainWindow does
+
+    w.update_classes(movements(ROWS))
+    assert set(pie(w.pie_figures()[COL_OUT])) == {'food', 'bank'}
+    food_color = pie(w.pie_figures()[COL_OUT])['food'][1]
+
+    # Filtered: bank gone, food keeps its colour
+    w.update_classes(movements([r for r in ROWS if r[4] != 'bank']))
+    assert pie(w.pie_figures()[COL_OUT]) == {'food': (15.0, food_color)}
+
+    w.update_classes(movements([]))
+    assert w.pie_figures() == {COL_OUT: None, COL_IN: None}

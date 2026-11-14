@@ -128,6 +128,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.ft.setup_dates(df)
         self.ft.setup_sliders(df)
         self.ft.setup_classes(df)
+        # Pie colours from the whole data, so that filters never repaint a class
+        self.ui_classes.set_class_colors(assign_class_colors(df))
         if reset_filters:
             self.ft.reset_filters(emit=False)  # filtered just below
 

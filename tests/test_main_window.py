@@ -158,6 +158,17 @@ class TestClassColumn:
         assert window.df_plot[COL_RUN_TOT].iloc[-1] == pytest.approx(90.0)
 
 
+    def test_class_pies_follow_filters(self, window):
+        figures = window.ui_classes.pie_figures
+        assert list(figures()[COL_OUT].data[0].labels) == ['investment', 'food']
+        assert list(figures()[COL_IN].data[0].labels) == [CLASS_TODO]
+
+        window.ft.class_checkboxes()['investment'].setChecked(False)
+        window._apply_filters()
+
+        assert list(figures()[COL_OUT].data[0].labels) == ['food']
+        assert figures()[COL_OUT].data[0].marker.colors[0] == window.ui_classes.class_colors()['food']
+
     def test_class_tabs_follow_filters(self, window):
         classes = window.ui_classes
         tabs = classes.qtw_tabs

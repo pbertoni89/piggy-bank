@@ -322,6 +322,58 @@ class QW_PeriodsTable(QWidget, Ui_PeriodsTable):
         self.table.show_frame(df_periods.rename(columns=self.HEADERS), formats, colours)
 
 
+# Class colours of the pie charts: the dataviz skill's reference categorical palette, in its dark steps (the plots
+# are dark). Assigned in this order, never cycled: classes past it fold into CLASS_OTHER.
+CLASS_PALETTE = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#0ca30c', '#9085e9', '#e66767']
+CLASS_OTHER = 'Other'
+CLASS_OTHER_COLOR = '#898781'
+PLOT_BG = '#111111'  # WebEnginePlotManager's background
+
+
+def assign_class_colors(df: pd.DataFrame) -> dict:
+    """{class: colour} for the classes of df, meant to be the whole data (not the filtered rows), so that filtering
+    never repaints a class. The classes moving the most money (|Out| + In) take CLASS_PALETTE in order. With more
+    classes than colours, the largest len(CLASS_PALETTE) - 1 get one and the others none (pies fold them into
+    CLASS_OTHER, whose grey takes the last slot)."""
+    if df.empty:
+        return {}
+    volume = (pd.to_numeric(df[COL_OUT], errors='coerce').abs().fillna(0)
+              + pd.to_numeric(df[COL_IN], errors='coerce').fillna(0)).groupby(df[COL_CLASS]).sum()
+    ranked = sorted(volume.index, key=lambda c: (-volume[c], c))
+    n = len(CLASS_PALETTE) if len(ranked) <= len(CLASS_PALETTE) else len(CLASS_PALETTE) - 1
+    return dict(zip(ranked[:n], CLASS_PALETTE))
+
+
+def class_pie_figure(df: pd.DataFrame, column: str, colors: dict, title: str) -> Optional[go.Figure]:
+    """A pie of the absolute sums of df[column] (COL_OUT or COL_IN) per class, None if they are all 0.
+    Slices follow the order of colors (so the colour of a class never depends on the filters), then CLASS_OTHER
+    for the classes without a colour. Each slice shows its share; hovering shows amount, share and movements."""
+    amounts = pd.to_numeric(df[column], errors='coerce').abs().fillna(0)
+    moving = amounts > 0
+    totals = amounts[moving].groupby(df.loc[moving, COL_CLASS]).sum()
+    counts = df.loc[moving, COL_CLASS].value_counts()
+    if totals.empty:
+        return None
+
+    named = [c for c in colors if c in totals.index]
+    other = sorted_classes(c for c in totals.index if c not in colors)
+    labels = named + ([CLASS_OTHER] if other else [])
+    values = [totals[c] for c in named] + ([totals[other].sum()] if other else [])
+    details = [f'{counts[c]} movements' for c in named]
+    if other:
+        details.append(f'{counts[other].sum()} movements: ' + ', '.join(other))
+
+    fig = go.Figure(go.Pie(
+        labels=labels, values=values, customdata=details, sort=False, direction='clockwise',
+        marker=dict(colors=[colors[c] for c in named] + ([CLASS_OTHER_COLOR] if other else []),
+                    line=dict(color=PLOT_BG, width=2)),  # a 2px gap between slices
+        textinfo='percent', textposition='inside', insidetextorientation='horizontal',
+        hovertemplate='<b>%{value:,.2f} EUR</b> (%{percent})<br>%{label}<br>%{customdata}<extra></extra>'))
+    fig.update_layout(title=f'{title}: {sum(values):,.2f} EUR', uniformtext=dict(minsize=10, mode='hide'),
+                      legend=dict(traceorder='normal'))
+    return fig
+
+
 class QW_Classes(QWidget, Ui_Classes):
     """Classes tab. qtw_tabs has one tab per class among the visible ledger rows (so the ledger filters apply),
     labelled with the class name, each with a QW_MovementsTable of that class's movements (columns from
@@ -329,7 +381,8 @@ class QW_Classes(QWidget, Ui_Classes):
     class name, over that class's amounts. qsa_aggr scrolls vertically only: its minimum width fits the boxes.
     The clustering settings (qsb_settings_classes_num = n_clusters, qsb_settings_seed = seed, see
     etica.cluster_auto()) emit clustering_changed, debounced: the owner re-clusters the whole data.
-    qhl_charts is not implemented yet."""
+    qhl_charts holds two pie charts of the visible rows per class: outflows (pie_out) and inflows (pie_in). Class
+    colours come from set_class_colors(), computed on the whole data so filters never repaint a class."""
 
     clustering_changed = Signal()
     DEBOUNCE_MS = 1000
@@ -344,9 +397,28 @@ class QW_Classes(QWidget, Ui_Classes):
         self.__timer.timeout.connect(self.clustering_changed.emit)
         self.qsb_settings_classes_num.valueChanged.connect(self._on_qsb_settings_classes_num_valueChanged)
         self.qsb_settings_seed.valueChanged.connect(self._on_qsb_settings_seed_valueChanged)
+
         # {class name: its widget}. A class's widgets are reused while the class stays visible (a table keeps its sort)
         self.__tables = {}
         self.__aggr = {}
+
+        self.__colors = {}
+        self.__figures = {COL_OUT: None, COL_IN: None}
+        self.pie_out = WebEnginePlotManager(self)
+        self.pie_in = WebEnginePlotManager(self)
+        self.qhl_charts.addWidget(self.pie_out)
+        self.qhl_charts.addWidget(self.pie_in)
+
+    def set_class_colors(self, colors: dict):
+        """{class: colour} for the pies, see assign_class_colors(). Applies from the next update_classes()."""
+        self.__colors = dict(colors)
+
+    def class_colors(self) -> dict:
+        return dict(self.__colors)
+
+    def pie_figures(self) -> dict:
+        """{COL_OUT: figure, COL_IN: figure} as last rendered, None where there was nothing to show."""
+        return dict(self.__figures)
 
     def clustering_settings(self) -> dict:
         """The keyword arguments of etica.cluster_merged() / cluster_auto(): {'n_clusters': ..., 'seed': ...}."""
@@ -406,6 +478,16 @@ class QW_Classes(QWidget, Ui_Classes):
         sa = self.qsa_aggr
         sa.setMinimumWidth(aggr_layout.sizeHint().width() + sa.verticalScrollBar().sizeHint().width()
                            + 2 * sa.frameWidth())
+
+        self.__update_pies(df)
+
+    def __update_pies(self, df: pd.DataFrame):
+        # Without set_class_colors() (standalone use), colours follow df itself
+        colors = self.__colors or assign_class_colors(df)
+        for column, title, plot in ((COL_OUT, 'Out by class', self.pie_out), (COL_IN, 'In by class', self.pie_in)):
+            fig = class_pie_figure(df, column, colors, title) if not df.empty else None
+            self.__figures[column] = fig
+            plot.render_figure(fig)
 
 
 class QW_Periods(QWidget, Ui_Periods):
