@@ -139,7 +139,37 @@ def test_filter_tools_classes_rebuild_keeps_unchecked(qtbot, df, df_classes):
 
     assert list(ft.class_checkboxes()) == ['loan', 'rent', CLASS_TODO]
     assert ft.excluded_classes() == {'loan'}
-    assert ft.saw_classes.layout().count() == 4  # 3 checkboxes and the stretch, nothing left over
+    assert ft.qgl_classes.count() == 4  # 3 checkboxes and the spacer, nothing left over
+
+
+def grid_cell(ft, qchk) -> tuple:
+    row, col, _, _ = ft.qgl_classes.getItemPosition(ft.qgl_classes.indexOf(qchk))
+    return row, col
+
+
+def test_filter_tools_classes_fill_two_rows_by_column(qtbot, df):
+    ft = QW_FilterTools(df)
+    qtbot.addWidget(ft)
+
+    ft.setup_classes(pd.DataFrame({COL_CLASS: ['a', 'b', 'c', 'd', 'e', CLASS_TODO]}))
+
+    cells = {cls: grid_cell(ft, qchk) for cls, qchk in ft.class_checkboxes().items()}
+    assert cells == {'a': (0, 0), 'b': (1, 0), 'c': (0, 1), 'd': (1, 1), 'e': (0, 2), CLASS_TODO: (1, 2)}
+
+
+def test_filter_tools_classes_scroll_horizontally_only(qtbot, df):
+    from PySide6.QtCore import Qt
+    ft = QW_FilterTools(df)
+    qtbot.addWidget(ft)
+    ft.setup_classes(pd.DataFrame({COL_CLASS: [f'some long class name {i}' for i in range(30)]}))
+    ft.show()
+    qtbot.waitExposed(ft)
+
+    sa = ft.sa_classes
+    assert sa.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+    assert sa.horizontalScrollBar().maximum() > 0  # 15 columns can't fit
+    # Both rows are fully visible above the horizontal scroll bar
+    assert sa.viewport().height() >= ft.saw_classes.height() >= ft.qgl_classes.sizeHint().height()
 
 
 def test_filter_tools_dates_have_calendar_popup(qtbot, df):

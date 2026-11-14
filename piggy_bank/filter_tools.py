@@ -1,7 +1,7 @@
 from typing import Optional
 
 from PySide6.QtCore import Signal, QDate, QTimer, Slot
-from PySide6.QtWidgets import QWidget, QCheckBox
+from PySide6.QtWidgets import QWidget, QCheckBox, QSpacerItem, QSizePolicy
 
 from piggy_bank.etica import *
 from piggy_bank.ui.filter_tools_rc import Ui_FilterTools
@@ -9,6 +9,8 @@ from piggy_bank.ui.filter_tools_rc import Ui_FilterTools
 
 class QW_FilterTools(QWidget, Ui_FilterTools):
     """Custom widget to handle filter tools."""
+
+    CLASS_ROWS = 2  # rows of class checkboxes in qgl_classes; columns grow with the number of classes
 
     # Custom signal emitted when filters are stable and ready to be applied
     filters_updated = Signal()
@@ -47,9 +49,11 @@ class QW_FilterTools(QWidget, Ui_FilterTools):
 
     def setup_classes(self, df: pd.DataFrame):
         """(Re)builds one checkbox per class of df[COL_CLASS] in saw_classes, labelled with its number of rows.
+        They fill a grid of CLASS_ROWS rows column by column, in sorted_classes() order, and sa_classes scrolls
+        horizontally when the columns don't fit.
         New classes start checked (accepted); a class already shown keeps its checked state across reloads."""
         unchecked = set(self.excluded_classes())
-        layout = self.saw_classes.layout()
+        layout = self.qgl_classes
         while layout.count():
             widget = layout.takeAt(0).widget()
             if widget is not None:
@@ -63,9 +67,17 @@ class QW_FilterTools(QWidget, Ui_FilterTools):
             qchk.setObjectName(f'qchk_class_{cls}')
             qchk.setChecked(cls not in unchecked)
             qchk.toggled.connect(self._on_qchk_class_toggled)
-            layout.addWidget(qchk)
+            idx = len(self.__qchk_classes)
+            layout.addWidget(qchk, idx % self.CLASS_ROWS, idx // self.CLASS_ROWS)
             self.__qchk_classes[cls] = qchk
-        layout.addStretch()
+        # Keeps the columns packed to the left when they don't fill the area
+        n_cols = -(-len(self.__qchk_classes) // self.CLASS_ROWS)
+        layout.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum),
+                       0, n_cols, self.CLASS_ROWS, 1)
+        # Never scrolls vertically: always tall enough for every row plus the horizontal scroll bar
+        self.sa_classes.setMinimumHeight(layout.sizeHint().height()
+                                         + self.sa_classes.horizontalScrollBar().sizeHint().height()
+                                         + 2 * self.sa_classes.frameWidth())
 
     def class_checkboxes(self) -> dict:
         """{class name: QCheckBox}, in display order."""
