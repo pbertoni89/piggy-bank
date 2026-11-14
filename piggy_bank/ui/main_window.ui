@@ -38,7 +38,7 @@
     <item>
      <widget class="QTabWidget" name="tabWidget">
       <property name="currentIndex">
-       <number>0</number>
+       <number>4</number>
       </property>
       <widget class="QWidget" name="tab_ledger">
        <attribute name="title">
@@ -77,6 +77,16 @@
        <layout class="QVBoxLayout" name="verticalLayout_5">
         <item>
          <layout class="QVBoxLayout" name="ql_classes"/>
+        </item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="tab_periods">
+       <attribute name="title">
+        <string>Periods</string>
+       </attribute>
+       <layout class="QVBoxLayout" name="verticalLayout_6">
+        <item>
+         <layout class="QVBoxLayout" name="ql_periods"/>
         </item>
        </layout>
       </widget>
@@ -123,7 +133,7 @@
   </action>
   <action name="qa_import_custom_classes">
    <property name="text">
-    <string>Import blacklist</string>
+    <string>Import custom classes</string>
    </property>
   </action>
  </widget>

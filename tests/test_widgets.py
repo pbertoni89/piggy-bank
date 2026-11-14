@@ -8,7 +8,7 @@ pytest.importorskip('piggy_bank.ui.filter_tools_rc', reason='UI not built, run .
 
 from piggy_bank.aggr_stats import QW_AggrStats  # noqa: E402
 from piggy_bank.filter_tools import QW_FilterTools  # noqa: E402
-from piggy_bank.qw_misc import NumericTableWidgetItem, apply_color_scheme, ENV_COLOR_SCHEME, QW_ClassesPeriods  # noqa: E402
+from piggy_bank.qw_misc import NumericTableWidgetItem, apply_color_scheme, ENV_COLOR_SCHEME, QW_Periods  # noqa: E402
 
 
 @pytest.fixture
@@ -248,8 +248,8 @@ def periods_column(w, header) -> list:
     return [table.item(r, col).text() for r in range(table.rowCount())]
 
 
-def test_classes_periods_table(qtbot):
-    w = QW_ClassesPeriods()
+def test_periods_table(qtbot):
+    w = QW_Periods()
     qtbot.addWidget(w)
     df = pd.DataFrame({COL_DATE: ['2024-12-31', '2025-01-02', '2025-01-10'],
                        COL_OUT: [-20.0, -10.0, 0.0], COL_IN: [0.0, 0.0, 100.0]})

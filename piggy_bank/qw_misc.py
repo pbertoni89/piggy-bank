@@ -21,7 +21,8 @@ except ImportError:
 from piggy_bank.ui.ledger_rc import Ui_Ledger
 from piggy_bank.ui.plots_lines_rc import Ui_PlotsLines
 from piggy_bank.ui.plots_stats_rc import Ui_PlotsStats
-from piggy_bank.ui.classes_periods_rc import Ui_ClassesPeriods
+from piggy_bank.ui.classes_rc import Ui_Classes
+from piggy_bank.ui.periods_rc import Ui_Periods
 from piggy_bank.aggr_stats import signed_color
 from piggy_bank.etica import (COL_DATE, COL_OUT, COL_IN, COL_PERIOD, TF_WEEKLY, TF_MONTHLY, TF_YEARLY,
                               AggrStats, compute_period_stats)
@@ -216,8 +217,16 @@ class QW_PlotsStats(QWidget, Ui_PlotsStats):
         self.setupUi(self)
 
 
-class QW_ClassesPeriods(QWidget, Ui_ClassesPeriods):
-    """Classes and periods tab. The periods table has one row per period (qcb_periods_time) of the visible
+class QW_Classes(QWidget, Ui_Classes):
+    """Classes tab: settings for automatic clustering (number of classes, seed) and the classes view.
+    Not implemented yet."""
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.setupUi(self)
+
+
+class QW_Periods(QWidget, Ui_Periods):
+    """Periods tab. The periods table has one row per period (qcb_periods_time) of the visible
     ledger rows: outflows, inflows and the etica.AggrStats of the amounts.
 
     The table columns come from the .ui header texts: 'Date', 'Out', 'In', or an AggrStats field

@@ -61,7 +61,7 @@ Files with any other extension (e.g. `*.csv.bk`) are ignored, which is handy for
 The **File** menu manages the folder for you:
 
 - **Import data**: copies a `.xls` export in, converts it and refreshes everything. If a statement with that name already exists (e.g. a newer export of the current year), you're asked before it gets replaced.
-- **Import blacklist**: replaces `custom-classes.csv` with the chosen `.csv` and refreshes everything.
+- **Import custom classes**: replaces `custom-classes.csv` with the chosen `.csv` and refreshes everything.
 - **Export data**: saves a copy of `merged.csv` wherever you like.
 
 If an import breaks loading (an unreadable file, or a rules file without the right header), it is rolled back and the previous data stays as it was.

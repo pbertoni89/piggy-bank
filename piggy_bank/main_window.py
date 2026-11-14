@@ -31,13 +31,15 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.ui_ledger = QW_Ledger(self)
         self.ui_plots_lines = QW_PlotsLines(self)
         self.ui_plots_stats = QW_PlotsStats(self)
-        self.ui_classes_periods = QW_ClassesPeriods(self)
+        self.ui_classes = QW_Classes(self)
+        self.ui_periods = QW_Periods(self)
 
         # Add decoupled widgets to the MainWindow's tab layouts
         self.ql_ledger.addWidget(self.ui_ledger)
         self.ql_plots_lines.addWidget(self.ui_plots_lines)
         self.ql_plots_stats.addWidget(self.ui_plots_stats)
-        self.ql_classes.addWidget(self.ui_classes_periods)
+        self.ql_classes.addWidget(self.ui_classes)
+        self.ql_periods.addWidget(self.ui_periods)
 
         df = self.get_data_source()
 
@@ -377,7 +379,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         self.df_plot = pd.DataFrame(plot_data)
         self._update_plot()
-        self.ui_classes_periods.update_periods(self.df_plot)
+        self.ui_periods.update_periods(self.df_plot)
 
     @Slot()
     def _update_plot(self):

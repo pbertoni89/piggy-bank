@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
- <class>ClassesPeriods</class>
- <widget class="QWidget" name="ClassesPeriods">
+ <class>Periods</class>
+ <widget class="QWidget" name="Periods">
   <property name="geometry">
    <rect>
     <x>0</x>
@@ -13,69 +13,13 @@
   <property name="windowTitle">
    <string>Form</string>
   </property>
-  <layout class="QVBoxLayout" name="verticalLayout" stretch="1,0,1">
-   <item>
-    <layout class="QHBoxLayout" name="qhl_classes" stretch="1,5">
-     <item>
-      <widget class="QGroupBox" name="qgb_settings_classes">
-       <property name="title">
-        <string>Classes Settings</string>
-       </property>
-       <layout class="QVBoxLayout" name="verticalLayout_2">
-        <item>
-         <widget class="QLabel" name="label_2">
-          <property name="text">
-           <string># Classes</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QSpinBox" name="qsb_settings_classes_num"/>
-        </item>
-        <item>
-         <widget class="QLabel" name="label_3">
-          <property name="text">
-           <string>Seed</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QSpinBox" name="qsb_settings_seed"/>
-        </item>
-        <item>
-         <spacer name="verticalSpacer_2">
-          <property name="orientation">
-           <enum>Qt::Orientation::Vertical</enum>
-          </property>
-          <property name="sizeHint" stdset="0">
-           <size>
-            <width>20</width>
-            <height>29</height>
-           </size>
-          </property>
-         </spacer>
-        </item>
-       </layout>
-      </widget>
-     </item>
-     <item>
-      <layout class="QVBoxLayout" name="qvl_classes"/>
-     </item>
-    </layout>
-   </item>
-   <item>
-    <widget class="Line" name="line">
-     <property name="orientation">
-      <enum>Qt::Orientation::Horizontal</enum>
-     </property>
-    </widget>
-   </item>
+  <layout class="QVBoxLayout" name="verticalLayout" stretch="1">
    <item>
     <layout class="QHBoxLayout" name="qhl_periods" stretch="1,5">
      <item>
       <widget class="QGroupBox" name="qgb_settings_periods">
        <property name="title">
-        <string>Periods Settings</string>
+        <string>Settings</string>
        </property>
        <layout class="QVBoxLayout" name="verticalLayout_3">
         <item>

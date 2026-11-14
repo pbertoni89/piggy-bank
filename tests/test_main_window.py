@@ -85,6 +85,16 @@ def test_starts_on_ledger_tab(window):
     assert window.tabWidget.currentWidget() is window.tab_ledger
 
 
+def test_every_tab_hosts_its_widget(window):
+    """Each sub-widget sits in its own tab, so a layout or tab lost in Designer shows up here."""
+    tab_of = {window.ui_ledger: window.tab_ledger, window.ui_plots_lines: window.tab_plots_lines,
+              window.ui_plots_stats: window.tab_plots_stats, window.ui_classes: window.tab_classes,
+              window.ui_periods: window.tab_periods}
+    for widget, tab in tab_of.items():
+        assert tab.isAncestorOf(widget), f'{type(widget).__name__} is not in {tab.objectName()}'
+    assert window.tabWidget.count() == len(tab_of)
+
+
 def test_ledger_header_is_english(window):
     # The source statements are Italian, everything the user sees is not
     table = window.ui_ledger.qtw_ledger
@@ -93,7 +103,7 @@ def test_ledger_header_is_english(window):
 
 
 def test_periods_tab_follows_filters(window):
-    periods = window.ui_classes_periods
+    periods = window.ui_periods
     periods.qcb_periods_time.setCurrentText('Monthly')
     table = periods.qtw_periods
     assert table.rowCount() == 1 and table.item(0, 0).text() == '2025-01'
