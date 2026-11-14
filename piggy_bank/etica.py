@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import csv
 import logging
@@ -54,13 +56,17 @@ DATA_DIR = Path(__file__).parent.parent / 'data' / 'etica'
 # Files in DATA_DIR that are not bank statements
 MERGED_CSV = 'merged.csv'                  # output of load_data(), never read back
 CUSTOM_CLASSES_CSV = 'custom-classes.csv'  # rules of cluster_custom()
+SED_DESCRIPTIONS_CSV = 'sed-descriptions.csv'  # description substitutions of load_data()
 BLACKLIST_CSV = 'blacklist.csv'            # archive only, superseded by CUSTOM_CLASSES_CSV
-NOT_STATEMENTS = {MERGED_CSV, CUSTOM_CLASSES_CSV, BLACKLIST_CSV}
+NOT_STATEMENTS = {MERGED_CSV, CUSTOM_CLASSES_CSV, SED_DESCRIPTIONS_CSV, BLACKLIST_CSV}
 
 # Custom classes rules (CUSTOM_CLASSES_CSV): our statement columns plus the class name
 RULE_COLUMNS = [COL_DATE, COL_OUT, COL_IN, COL_DESCR, COL_CLASS]
 RULE_ANY = '*'       # matches any value
 RULE_COMMENT = '#'   # a line starting with it is ignored
+
+# Description substitutions (SED_DESCRIPTIONS_CSV): literal Find text replaced by Replace (blank = delete)
+SED_COLUMNS = ['Find', 'Replace']
 CLASS_TODO = 'todo'  # movements neither a custom rule nor cluster_auto classified (only with auto clustering off)
 
 
@@ -126,19 +132,40 @@ def load_data() -> pd.DataFrame:
     df_merged.to_csv(out_csv_path, index=False)
     _lg.debug(f"Dumped merged data ({len(df_merged)} rows) to {out_csv_path.name}")
 
-    # 5) Strip away noisy text in the description. TODO put in a separate config file for easier maintenance
-    stripped_parts = [("CARTA N. 416363******7346 - CIRCUITO VISA", ""),
-                      ("Pagamenti paesi UE DEL", ""),
-                      ("ADDEBITO DIRETTO CORE RCUR Prg.Car.:", ""),
-                      ("Bonifico - SEPA istantaneo a vs favore", "<BONIF>"),
-                      ("DISPOSIZIONE PERIODICA CONTINUATIVA", "<BONIF>"),
-                      ("Valuta EUR Paese Italia C/O", ""),
-                      ("Bonifico - SEPA istantaneo", "<BONIF>"),
-                      ("ADDEBITO BONIFICO DA HOME BANKING", "<BONIF>"),
-                      ("BONIFICO A VOSTRO FAVORE", "<BONIF>"),]
-    for old, new in stripped_parts:
-        df_merged[COL_DESCR] = df_merged[COL_DESCR].str.replace(old, new, regex=False).str.strip()
+    # 5) Rewrite noisy text in the descriptions, as listed in SED_DESCRIPTIONS_CSV (merged.csv keeps the original)
+    df_merged[COL_DESCR] = sed_descriptions(df_merged[COL_DESCR])
     return df_merged
+
+
+def read_sed_descriptions(path: Path) -> list:
+    """Parses a description substitutions file into (find, replace) pairs, in file order.
+    The first line must be the header SED_COLUMNS. Find is a non-blank literal text (case-sensitive), Replace
+    its replacement (blank deletes it). Fields are stripped, quotes work. Blank lines and lines starting with
+    RULE_COMMENT are ignored. A malformed line is logged and skipped, a wrong header raises ValueError."""
+    pairs = []
+    for line_no, fields in _read_rules_csv(path, SED_COLUMNS):
+        if len(fields) != len(SED_COLUMNS) or not fields[0]:
+            _lg.error(f"{path.name}: line {line_no} skipped: expected a non-blank {SED_COLUMNS[0]} and a "
+                      f"{SED_COLUMNS[1]}. Line: {','.join(fields)}")
+            continue
+        pairs.append((fields[0], fields[1]))
+    return pairs
+
+
+def sed_descriptions(descriptions: pd.Series, path: Path | None = None) -> pd.Series:
+    """descriptions with the substitutions of path (default DATA_DIR/SED_DESCRIPTIONS_CSV, optional) applied in
+    file order, each one on the result of the previous ones, then stripped of surrounding blanks."""
+    path = path if path is not None else DATA_DIR / SED_DESCRIPTIONS_CSV
+    if not path.exists():
+        _lg.warning(f"No {path.name} in {path.parent}: descriptions are not rewritten")
+        return descriptions
+    pairs = read_sed_descriptions(path)
+    _lg.debug(f"Loaded {len(pairs)} description substitutions from {path.name}")
+    for find, replace in pairs:
+        if not descriptions.str.contains(find, regex=False, na=False).any():
+            _lg.warning(f"{path.name}: {find!r} is in no description")
+        descriptions = descriptions.str.replace(find, replace, regex=False).str.strip()
+    return descriptions
 
 
 @dataclass
@@ -188,6 +215,18 @@ def read_custom_classes(path: Path) -> list:
     Blank lines and lines starting with RULE_COMMENT are ignored. A malformed line is logged and skipped,
     a wrong header raises ValueError."""
     rules = []
+    for line_no, fields in _read_rules_csv(path, RULE_COLUMNS):
+        try:
+            rules.append(_parse_rule(line_no, fields))
+        except ValueError as e:
+            _lg.error(f"{path.name}: line {line_no} skipped: {e}. Line: {','.join(fields)}")
+    return rules
+
+
+def _read_rules_csv(path: Path, header: list):
+    """Yields (line number, stripped fields) for each data line of a CSV of rules (custom classes, description
+    substitutions), read with the csv module (quotes work, BOM ignored). Blank lines and lines starting with
+    RULE_COMMENT are skipped. The first other line must be header, else ValueError (also when there is none)."""
     header_seen = False
     with open(path, newline='', encoding='utf-8-sig') as f:
         for line_no, fields in enumerate(csv.reader(f), start=1):
@@ -195,18 +234,14 @@ def read_custom_classes(path: Path) -> list:
             if not any(fields) or fields[0].startswith(RULE_COMMENT):
                 continue
             if not header_seen:
-                if fields != RULE_COLUMNS:
-                    raise ValueError(f"{path.name}: line {line_no} must be the header {','.join(RULE_COLUMNS)}, "
+                if fields != header:
+                    raise ValueError(f"{path.name}: line {line_no} must be the header {','.join(header)}, "
                                      f"found {','.join(fields)}")
                 header_seen = True
                 continue
-            try:
-                rules.append(_parse_rule(line_no, fields))
-            except ValueError as e:
-                _lg.error(f"{path.name}: line {line_no} skipped: {e}. Line: {','.join(fields)}")
+            yield line_no, fields
     if not header_seen:
-        raise ValueError(f"{path.name}: no header line {','.join(RULE_COLUMNS)}")
-    return rules
+        raise ValueError(f"{path.name}: no header line {','.join(header)}")
 
 
 def _parse_rule(line_no: int, fields: list) -> ClassRule:

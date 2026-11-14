@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 from piggy_bank import etica
-from piggy_bank.etica import CUSTOM_CLASSES_CSV, RULE_COLUMNS, SOURCE_COLUMNS
+from piggy_bank.etica import CUSTOM_CLASSES_CSV, RULE_COLUMNS, SOURCE_COLUMNS, SED_DESCRIPTIONS_CSV, SED_COLUMNS
 
 # Source statements keep Banca Etica's Italian headers: 'Data contabile', 'Dare', 'Avere', 'Descrizione'
 SOURCE_HEADER = list(SOURCE_COLUMNS)
@@ -63,3 +63,13 @@ def fake_embeddings(monkeypatch):
 def auto_off(monkeypatch):
     """No automatic clustering, whatever the settings: movements no custom rule matches stay CLASS_TODO."""
     monkeypatch.setattr(etica, 'cluster_auto', lambda df, classes, **kwargs: classes)
+
+
+@pytest.fixture
+def write_sed(data_dir):
+    """Writes sed-descriptions.csv in DATA_DIR: the header, then each line verbatim (e.g. 'BONIFICO,<BONIF>')."""
+    def _write(lines: list, header: str = ','.join(SED_COLUMNS)):
+        path = data_dir / SED_DESCRIPTIONS_CSV
+        path.write_text('\n'.join([header, *lines]) + '\n')
+        return path
+    return _write

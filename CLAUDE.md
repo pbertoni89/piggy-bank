@@ -28,7 +28,7 @@ docker run --rm piggy-bank test    # test suite, offscreen, inside the image
 - Run Python from the repo root with `PYTHONPATH=.`. Imports are absolute (`from piggy_bank.etica import *`).
 - `driver.py` and `piggy_bank/etica.ipynb` are deprecated, so change them freely, but keep them on the GUI model. They work on *views*: tuples of excluded classes (`etica.DEFAULT_VIEWS`, like unchecking class checkboxes in the GUI), built with `build_view(df, exclude=)`, which filters (`apply_classes`) and then recomputes that view's own running total and OLS. They call `cluster_merged(load_data())` with the default clustering settings (`AUTO_N_CLUSTERS`, `AUTO_SEED`), like the GUI at startup. The plot helpers take `{label: df}` dicts.
 - Tests: `./driver.sh --build-run-tests` or `.venv/bin/python -m pytest` (configured in `pyproject.toml`, `pythonpath = ["."]`).
-  - `tests/test_load_data.py` covers the ingestion pipeline. Its `data_dir` fixture monkeypatches `etica.DATA_DIR` to a tmp dir, `write_csv` writes statement CSVs, and `write_classes` writes `custom-classes.csv` from raw lines. Never point tests at the real `data/`.
+  - `tests/test_load_data.py` covers the ingestion pipeline. Its `data_dir` fixture monkeypatches `etica.DATA_DIR` to a tmp dir, `write_csv` writes statement CSVs, `write_classes` writes `custom-classes.csv` and `write_sed` writes `sed-descriptions.csv`, both from raw lines. Never point tests at the real `data/`.
   - `tests/test_classes.py` covers the custom classes rules, `cluster_custom()` and `cluster_merged()`, with the `auto_off` fixture (from `conftest.py`), so unmatched movements stay `todo`.
   - `tests/test_cluster_auto.py` covers `cluster_auto()`. **No test loads the sentence_transformers model**: an autouse `conftest.py` fixture replaces `etica.embed_texts` with `fake_embed_texts`, a hashed bag of words that is deterministic and fast. Tests that are about something other than automatic classes and expect `todo` use `auto_off` (`monkeypatch` of `etica.cluster_auto`).
   - `tests/test_compute.py` covers the pure computations and the class/view API (`apply_classes`, `build_view`).
@@ -108,10 +108,13 @@ The data lives in `data/etica/` (`DATA_DIR` in `etica.py`). It is real personal 
 
 `etica.load_data()` is the single ingestion pipeline. It **mutates `DATA_DIR`** as it runs:
 1. Converts each `*.xls` to `*.csv` (dropping `Valuta`, `Divisa`, `Causale`) and **deletes the `.xls`**.
-2. Loads every `*.csv` except `NOT_STATEMENTS` (`merged.csv`, `custom-classes.csv`, `blacklist.csv`). Files like `*.csv.bk` are ignored because they don't match the glob. Watch out for overlapping exports, e.g. `-2024.csv` + `-2024-bis.csv`.
+2. Loads every `*.csv` except `NOT_STATEMENTS` (`merged.csv`, `custom-classes.csv`, `sed-descriptions.csv`, `blacklist.csv`). Files like `*.csv.bk` are ignored because they don't match the glob. Watch out for overlapping exports, e.g. `-2024.csv` + `-2024-bis.csv`.
 3. Concatenates them and drops exact duplicate rows. **Known, accepted limitation:** this also collapses genuinely distinct identical movements, e.g. two SEPA fees on the same day. The exports have no transaction ID, so there's no reliable way to tell those apart from overlapping exports. Don't try to "fix" it unless asked. `test_identical_rows_are_collapsed_known_limitation` pins this behaviour.
 4. Sorts by date with deterministic tiebreakers (`sort_by_date`) and rewrites `merged.csv` (output only, never read back).
-5. Rewrites noisy description fragments (the hardcoded `stripped_parts` list, e.g. → `<BONIF>`).
+5. Rewrites noisy description fragments (`sed_descriptions()`, e.g. → `<BONIF>`), after writing `merged.csv`, so `merged.csv` keeps the original text. The substitutions come from `DATA_DIR/sed-descriptions.csv` (`SED_DESCRIPTIONS_CSV`, optional: if it's missing, a warning and no rewrite). They used to be the hardcoded `stripped_parts` list; the user's real file was created from it.
+   - Format (`read_sed_descriptions()`): header `Find,Replace` (`SED_COLUMNS`), one pair per line. Find is literal and case-sensitive; a blank Replace deletes. Pairs apply in file order, each on the previous result, so a longer text must come before its prefix (`Bonifico - SEPA istantaneo a vs favore` before `Bonifico - SEPA istantaneo`). The result is stripped after each pair.
+   - Same conventions as `custom-classes.csv`, through the shared `_read_rules_csv()` parser: `#` and blank lines skipped, quotes work, fields stripped. A malformed line is logged and skipped, a Find found in no description logs a warning, and a wrong header raises `ValueError` (so `load_data()` fails).
+   - Automatic clustering sees the rewritten descriptions, so boilerplate added here also stops driving the clusters and their keyword names.
 
 It returns `df_merged`: the statement columns only, no classes.
 
