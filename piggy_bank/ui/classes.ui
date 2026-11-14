@@ -15,7 +15,7 @@
   </property>
   <layout class="QVBoxLayout" name="verticalLayout" stretch="1">
    <item>
-    <layout class="QHBoxLayout" name="qhl_classes" stretch="1,5">
+    <layout class="QHBoxLayout" name="qhl_classes" stretch="1,0,5">
      <item>
       <widget class="QGroupBox" name="qgb_settings_classes">
        <property name="title">
@@ -57,6 +57,31 @@
         </item>
        </layout>
       </widget>
+     </item>
+     <item>
+      <layout class="QVBoxLayout" name="qvl_aggr">
+       <item>
+        <widget class="QScrollArea" name="qsa_aggr">
+         <property name="horizontalScrollBarPolicy">
+          <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
+         </property>
+         <property name="widgetResizable">
+          <bool>true</bool>
+         </property>
+         <widget class="QWidget" name="qsac_aggr">
+          <property name="geometry">
+           <rect>
+            <x>0</x>
+            <y>0</y>
+            <width>68</width>
+            <height>455</height>
+           </rect>
+          </property>
+          <layout class="QVBoxLayout" name="verticalLayout_4"/>
+         </widget>
+        </widget>
+       </item>
+      </layout>
      </item>
      <item>
       <layout class="QVBoxLayout" name="qvl_classes" stretch="1,1">

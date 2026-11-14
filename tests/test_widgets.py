@@ -97,8 +97,9 @@ def test_filter_tools_defaults_from_data(qtbot, df):
 
     assert ft.qde_start.date().toString('yyyy-MM-dd') == '2024-03-05'
     assert ft.qde_end.date().toString('yyyy-MM-dd') == '2025-07-20'
-    assert ft.qrs_out.value() == (-250, -250)
-    assert ft.qrs_in.value() == (1200, 1200)
+    # Exact bounds, cents included: int() would drop -250.4 and 1200.9 out of their own range
+    assert ft.qrs_out.value() == (-250.4, -250.4) == spins(ft, 'out')
+    assert ft.qrs_in.value() == (1200.9, 1200.9) == spins(ft, 'in')
 
 
 def test_filter_tools_class_checkboxes(qtbot, df, df_classes):
@@ -110,7 +111,7 @@ def test_filter_tools_class_checkboxes(qtbot, df, df_classes):
     boxes = ft.class_checkboxes()
     assert list(boxes) == ['food', 'loan', CLASS_TODO]  # alphabetical, todo last
     assert [b.text() for b in boxes.values()] == ['food (2)', 'loan (1)', 'todo (1)']
-    assert all(b.isChecked() and b.parent() is ft.saw_classes for b in boxes.values())
+    assert all(b.isChecked() and b.parent() is ft.qsaw_classes for b in boxes.values())
     assert ft.excluded_classes() == set()
 
 
@@ -166,11 +167,118 @@ def test_filter_tools_classes_scroll_horizontally_only(qtbot, df):
     ft.show()
     qtbot.waitExposed(ft)
 
-    sa = ft.sa_classes
+    sa = ft.qsa_classes
     assert sa.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
     assert sa.horizontalScrollBar().maximum() > 0  # 15 columns can't fit
     # Both rows are fully visible above the horizontal scroll bar
-    assert sa.viewport().height() >= ft.saw_classes.height() >= ft.qgl_classes.sizeHint().height()
+    assert sa.viewport().height() >= ft.qsaw_classes.height() >= ft.qgl_classes.sizeHint().height()
+
+
+@pytest.fixture
+def ft_ranges(qtbot):
+    """A FilterTools with amount ranges Out -500..-10, In 20..3000."""
+    df = pd.DataFrame({COL_DATE: ['2024-03-05', '2024-03-06', '2025-07-20', '2025-07-21'],
+                       COL_OUT: [-500.0, -10.0, None, None], COL_IN: [None, None, 20.0, 3000.0]})
+    ft = QW_FilterTools(df)
+    qtbot.addWidget(ft)
+    ft.setup_sliders(df)
+    return ft
+
+
+def spins(ft, direction) -> tuple:
+    return getattr(ft, f'qsb_{direction}_min').value(), getattr(ft, f'qsb_{direction}_max').value()
+
+
+def test_filter_tools_spin_boxes_follow_data(ft_ranges):
+    ft = ft_ranges
+    assert spins(ft, 'out') == ft.qrs_out.value() == (-500, -10)
+    assert spins(ft, 'in') == ft.qrs_in.value() == (20, 3000)
+    assert (ft.qsb_out_min.minimum(), ft.qsb_out_max.maximum()) == (-500, -10)
+    boxes = (ft.qsb_out_min, ft.qsb_out_max, ft.qsb_in_min, ft.qsb_in_max)
+    # Typed values apply on Enter / focus out, not at every keystroke
+    assert not any(qsb.keyboardTracking() for qsb in boxes)
+    assert all(qsb.decimals() == 2 and qsb.singleStep() == 10.0 for qsb in boxes)
+
+
+def test_filter_tools_spin_box_steps_by_ten(ft_ranges):
+    ft = ft_ranges
+    ft.qsb_in_min.stepUp()
+    assert ft.qrs_in.value() == (30.0, 3000.0)
+    ft.qsb_in_max.stepDown()
+    assert ft.qrs_in.value() == (30.0, 2990.0)
+
+
+def test_filter_tools_spin_box_keeps_cents(ft_ranges):
+    ft = ft_ranges
+    ft.qsb_out_max.setValue(-12.34)
+    assert ft.qrs_out.value() == (-500.0, -12.34)
+
+
+def test_filter_tools_slider_moves_spin_boxes_and_filters(qtbot, ft_ranges):
+    ft = ft_ranges
+    with qtbot.waitSignal(ft.filters_updated, timeout=2000):
+        ft.qrs_in.setValue((100, 2000))
+
+    assert spins(ft, 'in') == (100, 2000)
+
+
+@pytest.mark.parametrize('spin, value, expected', [('qsb_out_min', -300, (-300, -10)),
+                                                   ('qsb_out_max', -50, (-500, -50))])
+def test_filter_tools_spin_box_moves_slider_and_filters(qtbot, ft_ranges, spin, value, expected):
+    ft = ft_ranges
+    with qtbot.waitSignal(ft.filters_updated, timeout=2000):
+        getattr(ft, spin).setValue(value)
+
+    assert ft.qrs_out.value() == expected == spins(ft, 'out')
+
+
+@pytest.mark.parametrize('spin, value, expected', [('qsb_in_min', 2500, (2500, 2500)),
+                                                   ('qsb_in_max', 30, (30, 30))])
+def test_filter_tools_spin_boxes_never_cross(ft_ranges, spin, value, expected):
+    ft = ft_ranges
+    ft.qsb_in_min.setValue(1000)
+    ft.qsb_in_max.setValue(2000)
+
+    getattr(ft, spin).setValue(value)  # past the other bound: the other one follows
+
+    assert ft.qrs_in.value() == expected == spins(ft, 'in')
+
+
+def test_filter_tools_direction_checkbox_disables_spin_boxes(ft_ranges):
+    ft = ft_ranges
+    ft.qchk_out.setChecked(False)
+    assert not any(w.isEnabled() for w in (ft.qrs_out, ft.qsb_out_min, ft.qsb_out_max))
+    assert ft.qsb_in_min.isEnabled()
+
+    ft.qchk_out.setChecked(True)
+    assert all(w.isEnabled() for w in (ft.qrs_out, ft.qsb_out_min, ft.qsb_out_max))
+
+
+def test_filter_tools_reset_restores_spin_boxes(qtbot, ft_ranges):
+    ft = ft_ranges
+    ft.qsb_out_min.setValue(-100)
+    ft.qrs_in.setValue((50, 60))
+
+    with qtbot.waitSignal(ft.filters_updated, timeout=500):
+        ft.qpb_reset.click()
+
+    assert spins(ft, 'out') == ft.qrs_out.value() == (-500, -10)
+    assert spins(ft, 'in') == ft.qrs_in.value() == (20, 3000)
+
+
+def test_filter_tools_last_month(qtbot, df):
+    from PySide6.QtCore import QDate
+    ft = QW_FilterTools(df)
+    qtbot.addWidget(ft)
+    emitted = []
+    ft.filters_updated.connect(lambda: emitted.append(1))
+
+    ft.qpb_last_month.click()
+
+    today = QDate.currentDate()
+    assert ft.qde_end.date() == today
+    assert ft.qde_start.date() == today.addDays(-31)
+    assert emitted == [1]  # filters once, not once per date edit
 
 
 def test_filter_tools_dates_have_calendar_popup(qtbot, df):
@@ -373,3 +481,40 @@ def test_classes_tabs_follow_visible_rows(qtbot):
 
     w.update_classes(movements([]))
     assert w.qtw_tabs.count() == 0 and w.class_tables() == {}
+
+
+def test_classes_one_aggr_stats_per_class(qtbot):
+    w = QW_Classes()
+    qtbot.addWidget(w)
+
+    w.update_classes(movements(ROWS))
+
+    boxes = w.class_aggr_stats()
+    assert list(boxes) == ['bank', 'food', CLASS_TODO]
+    assert [b.qgb.title() for b in boxes.values()] == ['bank', 'food', CLASS_TODO]
+    assert all(b.parent() is w.qsac_aggr for b in boxes.values())
+    food = boxes['food']
+    assert food.ql_entries.text().strip() == '2' and food.ql_sum.text() == '-15'
+    assert '#d62728' in food.ql_sum.styleSheet()  # coloured like the ledger's All box
+
+    # Same lifecycle as the tabs: kept while visible, dropped when not, in display order
+    w.update_classes(movements([r for r in ROWS if r[4] != 'bank']))
+    assert list(w.class_aggr_stats()) == ['food', CLASS_TODO]
+    assert w.class_aggr_stats()['food'] is food
+    layout = w.qsac_aggr.layout()
+    assert [layout.itemAt(i).widget() for i in range(layout.count() - 1)] == [food, w.class_aggr_stats()[CLASS_TODO]]
+
+
+def test_classes_aggr_stats_scroll_vertically_only(qtbot):
+    from PySide6.QtCore import Qt
+    w = QW_Classes()
+    qtbot.addWidget(w)
+    w.update_classes(movements([('2025-01-02', -1.0, 0.0, 'X', f'class {i}') for i in range(12)]))
+    w.resize(900, 400)
+    w.show()
+    qtbot.waitExposed(w)
+
+    sa = w.qsa_aggr
+    assert sa.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+    assert sa.verticalScrollBar().maximum() > 0  # 12 boxes can't fit in 400 px
+    assert sa.viewport().width() >= w.qsac_aggr.layout().sizeHint().width()  # nothing clipped sideways

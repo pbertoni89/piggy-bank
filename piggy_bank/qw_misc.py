@@ -25,7 +25,7 @@ from piggy_bank.ui.classes_rc import Ui_Classes
 from piggy_bank.ui.periods_rc import Ui_Periods
 from piggy_bank.ui.movements_table_rc import Ui_MovementsTable
 from piggy_bank.ui.periods_table_rc import Ui_PeriodsTable
-from piggy_bank.aggr_stats import signed_color
+from piggy_bank.aggr_stats import signed_color, QW_AggrStats
 from piggy_bank.etica import (COL_DATE, COL_OUT, COL_IN, COL_DESCR, COL_CLASS, COL_AMOUNT, COL_PERIOD,
                               TF_WEEKLY, TF_MONTHLY, TF_YEARLY, AggrStats, compute_period_stats, sorted_classes)
 
@@ -325,39 +325,63 @@ class QW_PeriodsTable(QWidget, Ui_PeriodsTable):
 class QW_Classes(QWidget, Ui_Classes):
     """Classes tab. qtw_tabs has one tab per class among the visible ledger rows (so the ledger filters apply),
     labelled with the class name, each with a QW_MovementsTable of that class's movements (columns from
-    movements_table.ui).
+    movements_table.ui). Alongside, qsac_aggr stacks a QW_AggrStats per visible class (same order), titled with the
+    class name, over that class's amounts. qsa_aggr scrolls vertically only: its minimum width fits the boxes.
     The clustering settings (qsb_settings_classes_num, qsb_settings_seed) and qhl_charts are not implemented yet."""
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setupUi(self)
-        # {class name: its table}. A class's table is reused while the class stays visible, so its sort is kept
+        # {class name: its widget}. A class's widgets are reused while the class stays visible (a table keeps its sort)
         self.__tables = {}
+        self.__aggr = {}
 
     def class_tables(self) -> dict:
         """{class name: QW_MovementsTable}, in tab order."""
         return dict(self.__tables)
 
+    def class_aggr_stats(self) -> dict:
+        """{class name: QW_AggrStats}, in display order."""
+        return dict(self.__aggr)
+
     def update_classes(self, df: pd.DataFrame):
-        """Rebuilds the tabs from df, the visible ledger rows (COL_DATE, COL_OUT, COL_IN, COL_DESCR, COL_CLASS),
-        keeping the current tab selected if its class is still there."""
+        """Rebuilds the tabs and the stats boxes from df, the visible ledger rows (COL_DATE, COL_OUT, COL_IN,
+        COL_DESCR, COL_CLASS, COL_AMOUNT), keeping the current tab selected if its class is still there."""
         tabs = self.qtw_tabs
         current = tabs.tabText(tabs.currentIndex()) if tabs.count() else None
         classes = sorted_classes(df[COL_CLASS]) if not df.empty else []
 
         tabs.blockSignals(True)
         tabs.clear()  # removes the tabs, not their widgets
+        aggr_layout = self.qsac_aggr.layout()
+        while aggr_layout.count():
+            aggr_layout.takeAt(0)  # detaches the boxes (and the stretch), the boxes stay alive
         for cls in [c for c in self.__tables if c not in classes]:
             self.__tables.pop(cls).deleteLater()
+            self.__aggr.pop(cls).deleteLater()
+
         for cls in classes:
+            rows = df[df[COL_CLASS] == cls]
             table = self.__tables.get(cls) or QW_MovementsTable()
-            self.__tables[cls] = table
-            table.show_movements(df[df[COL_CLASS] == cls])
+            table.show_movements(rows)
             tabs.addTab(table, cls)
-        self.__tables = {cls: self.__tables[cls] for cls in classes}  # tab order
+            stats = self.__aggr.get(cls) or QW_AggrStats(cls, coloured=True, parent=self.qsac_aggr)
+            stats.update_stats(rows[COL_AMOUNT].tolist())
+            aggr_layout.addWidget(stats)
+            self.__tables[cls], self.__aggr[cls] = table, stats
+        aggr_layout.addStretch()
+        # Display order
+        self.__tables = {cls: self.__tables[cls] for cls in classes}
+        self.__aggr = {cls: self.__aggr[cls] for cls in classes}
+
         if current in self.__tables:
             tabs.setCurrentIndex(classes.index(current))
         tabs.blockSignals(False)
+
+        # Never scrolls horizontally: always wide enough for the boxes plus the vertical scroll bar
+        sa = self.qsa_aggr
+        sa.setMinimumWidth(aggr_layout.sizeHint().width() + sa.verticalScrollBar().sizeHint().width()
+                           + 2 * sa.frameWidth())
 
 
 class QW_Periods(QWidget, Ui_Periods):

@@ -102,6 +102,16 @@ def test_ledger_header_is_english(window):
         ['Date', 'Out', 'In', 'Description', 'Class', 'Running Total']
 
 
+def test_extreme_amounts_with_cents_are_visible(qtbot, write_csv, dialogs):
+    # The most negative Out and the largest In have cents: the amount ranges must include them
+    write_csv('a.csv', [('2025-01-02', -250.4, None, 'MIN OUT'), ('2025-01-03', -0.35, None, 'MAX OUT'),
+                        ('2025-01-06', None, 0.45, 'MIN IN'), ('2025-01-07', None, 1200.9, 'MAX IN')])
+    w = main_window.MainWindow()
+    qtbot.addWidget(w)
+
+    assert visible_descriptions(w) == ['MAX IN', 'MAX OUT', 'MIN IN', 'MIN OUT']
+
+
 def test_periods_tab_follows_filters(window):
     periods = window.ui_periods
     periods.qcb_periods_time.setCurrentText('Monthly')

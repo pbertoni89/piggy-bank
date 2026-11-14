@@ -16,15 +16,74 @@
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
     <layout class="QGridLayout" name="gridLayout">
-     <item row="0" column="4">
-      <widget class="QDateEdit" name="qde_end">
-       <property name="calendarPopup">
+     <item row="0" column="0" rowspan="2">
+      <widget class="QGroupBox" name="qgb_actions">
+       <property name="title">
+        <string>Actions</string>
+       </property>
+       <layout class="QVBoxLayout" name="verticalLayout_2">
+        <item>
+         <widget class="QPushButton" name="qpb_reset">
+          <property name="text">
+           <string>Reset Filters</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="qpb_last_month">
+          <property name="text">
+           <string>Last Month</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item row="0" column="7">
+      <widget class="QCheckBox" name="qchk_out">
+       <property name="text">
+        <string>Out</string>
+       </property>
+       <property name="checked">
         <bool>true</bool>
        </property>
       </widget>
      </item>
-     <item row="1" column="5">
-      <spacer name="horizontalSpacer">
+     <item row="1" column="8">
+      <widget class="QDoubleSpinBox" name="qsb_in_min">
+       <property name="keyboardTracking">
+        <bool>false</bool>
+       </property>
+       <property name="decimals">
+        <number>2</number>
+       </property>
+       <property name="singleStep">
+        <double>10.000000000000000</double>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="10">
+      <widget class="QDoubleSpinBox" name="qsb_in_max">
+       <property name="keyboardTracking">
+        <bool>false</bool>
+       </property>
+       <property name="decimals">
+        <number>2</number>
+       </property>
+       <property name="singleStep">
+        <double>10.000000000000000</double>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="9">
+      <widget class="QDoubleRangeSlider" name="qrs_in">
+       <property name="orientation">
+        <enum>Qt::Orientation::Horizontal</enum>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="11">
+      <spacer name="horizontalSpacer_4">
        <property name="orientation">
         <enum>Qt::Orientation::Horizontal</enum>
        </property>
@@ -39,7 +98,124 @@
        </property>
       </spacer>
      </item>
-     <item row="1" column="1">
+     <item row="0" column="2">
+      <widget class="QLabel" name="label">
+       <property name="text">
+        <string>From</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+       </property>
+      </widget>
+     </item>
+     <item row="0" column="5">
+      <widget class="QDateEdit" name="qde_end">
+       <property name="calendarPopup">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item row="0" column="12" rowspan="2">
+      <widget class="QGroupBox" name="qgb_classes">
+       <property name="title">
+        <string>Classes</string>
+       </property>
+       <layout class="QVBoxLayout" name="verticalLayout_4">
+        <item>
+         <widget class="QScrollArea" name="qsa_classes">
+          <property name="verticalScrollBarPolicy">
+           <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
+          </property>
+          <property name="horizontalScrollBarPolicy">
+           <enum>Qt::ScrollBarPolicy::ScrollBarAsNeeded</enum>
+          </property>
+          <property name="widgetResizable">
+           <bool>true</bool>
+          </property>
+          <widget class="QWidget" name="qsaw_classes">
+           <property name="geometry">
+            <rect>
+             <x>0</x>
+             <y>0</y>
+             <width>86</width>
+             <height>127</height>
+            </rect>
+           </property>
+           <layout class="QGridLayout" name="qgl_classes"/>
+          </widget>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item row="0" column="10">
+      <widget class="QDoubleSpinBox" name="qsb_out_max">
+       <property name="keyboardTracking">
+        <bool>false</bool>
+       </property>
+       <property name="decimals">
+        <number>2</number>
+       </property>
+       <property name="singleStep">
+        <double>10.000000000000000</double>
+       </property>
+      </widget>
+     </item>
+     <item row="0" column="8">
+      <widget class="QDoubleSpinBox" name="qsb_out_min">
+       <property name="keyboardTracking">
+        <bool>false</bool>
+       </property>
+       <property name="decimals">
+        <number>2</number>
+       </property>
+       <property name="singleStep">
+        <double>10.000000000000000</double>
+       </property>
+      </widget>
+     </item>
+     <item row="0" column="3">
+      <widget class="QDateEdit" name="qde_start">
+       <property name="calendarPopup">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item row="0" column="9">
+      <widget class="QDoubleRangeSlider" name="qrs_out">
+       <property name="orientation">
+        <enum>Qt::Orientation::Horizontal</enum>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="2" colspan="4">
+      <widget class="QLineEdit" name="qle_description">
+       <property name="placeholderText">
+        <string>Filter Description...</string>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="7">
+      <widget class="QCheckBox" name="qchk_in">
+       <property name="text">
+        <string>In</string>
+       </property>
+       <property name="checked">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item row="0" column="4">
+      <widget class="QLabel" name="label_2">
+       <property name="text">
+        <string>To</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+       </property>
+      </widget>
+     </item>
+     <item row="0" column="1">
       <spacer name="horizontalSpacer_2">
        <property name="orientation">
         <enum>Qt::Orientation::Horizontal</enum>
@@ -55,145 +231,21 @@
        </property>
       </spacer>
      </item>
-     <item row="2" column="2" colspan="3">
-      <widget class="QLineEdit" name="qle_description">
-       <property name="placeholderText">
-        <string>Filter Description...</string>
-       </property>
-      </widget>
-     </item>
-     <item row="0" column="1">
-      <widget class="QLabel" name="label">
-       <property name="text">
-        <string>From</string>
-       </property>
-       <property name="alignment">
-        <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
-       </property>
-      </widget>
-     </item>
-     <item row="1" column="0">
-      <widget class="QPushButton" name="qpb_reset">
-       <property name="text">
-        <string>Reset Filters</string>
-       </property>
-      </widget>
-     </item>
-     <item row="0" column="2">
-      <widget class="QDateEdit" name="qde_start">
-       <property name="calendarPopup">
-        <bool>true</bool>
-       </property>
-      </widget>
-     </item>
-     <item row="0" column="6" rowspan="3">
-      <widget class="QGroupBox" name="qgb_classes">
-       <property name="title">
-        <string>Classes</string>
-       </property>
-       <layout class="QVBoxLayout" name="verticalLayout_4">
-        <item>
-         <widget class="QScrollArea" name="sa_classes">
-          <property name="verticalScrollBarPolicy">
-           <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
-          </property>
-          <property name="horizontalScrollBarPolicy">
-           <enum>Qt::ScrollBarPolicy::ScrollBarAsNeeded</enum>
-          </property>
-          <property name="widgetResizable">
-           <bool>true</bool>
-          </property>
-          <widget class="QWidget" name="saw_classes">
-           <property name="geometry">
-            <rect>
-             <x>0</x>
-             <y>0</y>
-             <width>499</width>
-             <height>80</height>
-            </rect>
-           </property>
-           <layout class="QGridLayout" name="qgl_classes"/>
-          </widget>
-         </widget>
-        </item>
-       </layout>
-      </widget>
-     </item>
-     <item row="0" column="3">
-      <widget class="QLabel" name="label_2">
-       <property name="text">
-        <string>To</string>
-       </property>
-       <property name="alignment">
-        <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
-       </property>
-      </widget>
-     </item>
-    </layout>
-   </item>
-   <item>
-    <layout class="QGridLayout" name="gridLayout_2">
-     <item row="1" column="3">
-      <widget class="QLabel" name="ql_in_max">
-       <property name="text">
-        <string>&lt;max&gt;</string>
-       </property>
-      </widget>
-     </item>
-     <item row="1" column="0">
-      <widget class="QCheckBox" name="qchk_in">
-       <property name="text">
-        <string>In</string>
-       </property>
-       <property name="checked">
-        <bool>true</bool>
-       </property>
-      </widget>
-     </item>
-     <item row="0" column="1">
-      <widget class="QLabel" name="ql_out_min">
-       <property name="text">
-        <string>&lt;min&gt;</string>
-       </property>
-      </widget>
-     </item>
-     <item row="0" column="2">
-      <widget class="QRangeSlider" name="qrs_out">
+     <item row="0" column="6">
+      <spacer name="horizontalSpacer">
        <property name="orientation">
         <enum>Qt::Orientation::Horizontal</enum>
        </property>
-      </widget>
-     </item>
-     <item row="0" column="0">
-      <widget class="QCheckBox" name="qchk_out">
-       <property name="text">
-        <string>Out</string>
+       <property name="sizeType">
+        <enum>QSizePolicy::Policy::Maximum</enum>
        </property>
-       <property name="checked">
-        <bool>true</bool>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
        </property>
-      </widget>
-     </item>
-     <item row="1" column="1">
-      <widget class="QLabel" name="ql_in_min">
-       <property name="text">
-        <string>&lt;min&gt;</string>
-       </property>
-      </widget>
-     </item>
-     <item row="1" column="2">
-      <widget class="QRangeSlider" name="qrs_in">
-       <property name="orientation">
-        <enum>Qt::Orientation::Horizontal</enum>
-       </property>
-      </widget>
-     </item>
-     <item row="0" column="3">
-      <widget class="QLabel" name="ql_out_max">
-       <property name="text">
-        <string>&lt;max&gt;</string>
-       </property>
-      </widget>
+      </spacer>
      </item>
     </layout>
    </item>
@@ -201,15 +253,11 @@
  </widget>
  <customwidgets>
   <customwidget>
-   <class>QRangeSlider</class>
+   <class>QDoubleRangeSlider</class>
    <extends>QSlider</extends>
    <header>superqt</header>
   </customwidget>
  </customwidgets>
  <resources/>
  <connections/>
- <buttongroups>
-  <buttongroup name="brg_bl"/>
-  <buttongroup name="brg_inv"/>
- </buttongroups>
 </ui>
