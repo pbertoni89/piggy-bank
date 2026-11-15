@@ -7,7 +7,7 @@ import pytest
 
 from piggy_bank import etica
 from piggy_bank.etica import (COL_DESCR, COL_CLASS, CLASS_TODO, AUTO_N_CLUSTERS, AUTO_SEED,
-                              load_data, cluster_auto, cluster_merged, auto_class_name)
+                              load_data, cluster_auto, cluster_merged, auto_class_name, is_auto_class)
 
 DESCRIPTIONS = ['PAGAMENTO POS ESSELUNGA', 'PAGAMENTO POS CONAD', 'PAGAMENTO POS COOP',
                 'PRELIEVO BANCOMAT 4455', 'PRELIEVO BANCOMAT 9911',
@@ -76,6 +76,19 @@ def test_name_padding(k, n, name):
     assert auto_class_name(n, k, ['x']) == name
 
 
+@pytest.mark.parametrize('name, auto', [('[a1]', True), ('[a01] pagamento/esselunga', True), ('[a100] x', True),
+                                        ('food', False), (CLASS_TODO, False), ('a1 food', False),
+                                        ('[a] food', False), ('[ab] food', False), ('[a1]food', False),
+                                        ('my [a1] food', False)])
+def test_is_auto_class(name, auto):
+    assert is_auto_class(name) is auto
+
+
+@pytest.mark.parametrize('k, n, words', [(9, 3, ['x', 'y']), (10, 3, []), (1000, 42, ['pagamento'])])
+def test_auto_class_names_are_auto(k, n, words):
+    assert is_auto_class(auto_class_name(n, k, words))
+
+
 def test_short_words_never_name_a_class():
     assert set(auto(['BONIFICO DEL CRO PER', 'BONIFICO DEL CRO CON'], n_clusters=1)) == {'[a1] bonifico'}
 
@@ -114,13 +127,36 @@ def test_cluster_merged_zero_clusters_leaves_todo(write_csv):
 
 
 def test_defaults_match_classes_ui():
-    """etica's defaults (driver, notebook) are the GUI's: the spin box values in classes.ui."""
+    """etica's defaults (driver, notebook) are the GUI's: read from the spin box values in classes.ui.
+    Cross-checked here with a regex, independently of etica's XML parsing."""
     ui = (Path(etica.__file__).parent / 'ui' / 'classes.ui').read_text()
 
     def spin_value(name):
         return int(re.search(rf'name="{name}">\s*<property name="value">\s*<number>(\d+)</number>', ui).group(1))
 
     assert (spin_value('qsb_settings_classes_num'), spin_value('qsb_settings_seed')) == (AUTO_N_CLUSTERS, AUTO_SEED)
+
+
+UI_SPIN_BOXES = '''<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <widget class="QWidget" name="Root">
+  <layout class="QVBoxLayout" name="vl">
+   <item><widget class="QSpinBox" name="qsb_seven"><property name="value"><number>7</number></property></widget></item>
+   <item><widget class="QSpinBox" name="qsb_zero"/></item>
+  </layout>
+ </widget>
+</ui>
+'''
+
+
+def test_ui_spin_box_value(tmp_path):
+    ui = tmp_path / 'x.ui'
+    ui.write_text(UI_SPIN_BOXES)
+
+    assert etica.ui_spin_box_value(ui, 'qsb_seven') == 7
+    assert etica.ui_spin_box_value(ui, 'qsb_zero') == 0  # Designer doesn't save a value equal to Qt's default
+    with pytest.raises(ValueError, match='qsb_missing'):
+        etica.ui_spin_box_value(ui, 'qsb_missing')
 
 
 def test_embeddings_are_cached(monkeypatch):

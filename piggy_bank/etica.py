@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import csv
+import re
 import logging
 from dataclasses import dataclass
 from datetime import datetime
@@ -308,9 +309,24 @@ def cluster_custom(df: pd.DataFrame, path: Path | None = None) -> pd.Series:
     return classes
 
 
-# Automatic classes (cluster_auto). The defaults mirror qsb_settings_classes_num / qsb_settings_seed in classes.ui
-AUTO_N_CLUSTERS = 5    # 0 turns automatic clustering off: unclassified movements stay CLASS_TODO
-AUTO_SEED = 42         # KMeans random_state
+CLASSES_UI = Path(__file__).parent / 'ui' / 'classes.ui'
+
+
+def ui_spin_box_value(ui_file: Path, name: str) -> int:
+    """The initial `value` of spin box `name` in a Designer .ui file, read as XML (no Qt here).
+    No value property means Qt's default, 0: Designer doesn't save it. Raises ValueError if the spin box is missing."""
+    import xml.etree.ElementTree as ET
+    widget = ET.parse(ui_file).getroot().find(f".//widget[@name='{name}']")
+    if widget is None:
+        raise ValueError(f"{ui_file.name}: no spin box {name!r}")
+    node = widget.find("property[@name='value']/number")
+    return 0 if node is None else int(node.text)
+
+
+# Automatic classes (cluster_auto). The defaults are the GUI's: the initial values of the spin boxes in classes.ui,
+# which is the single place to change them
+AUTO_N_CLUSTERS = ui_spin_box_value(CLASSES_UI, 'qsb_settings_classes_num')  # 0 = off: unclassified stay CLASS_TODO
+AUTO_SEED = ui_spin_box_value(CLASSES_UI, 'qsb_settings_seed')               # KMeans random_state
 AUTO_MODEL = 'paraphrase-multilingual-MiniLM-L12-v2'  # sentence_transformers model (multilingual: Italian descriptions)
 AUTO_PREFIX = 'a'      # automatic class names: [AUTO_PREFIX + cluster number] + keywords, e.g. '[a1] pagamento/esselunga'
 AUTO_NAME_WORDS = 2    # keywords per automatic class name
@@ -364,6 +380,15 @@ def auto_class_name(n: int, k: int, words: list) -> str:
     """The name of automatic class n of k: '[a<n>] word1/word2', or just '[a<n>]' without keywords.
     n is zero-padded to the digits of k (k=10: [a01] .. [a10]), so alphabetical order is size order."""
     return ' '.join([f'[{AUTO_PREFIX}{n:0{len(str(k))}d}]', '/'.join(words)]).strip()
+
+
+_AUTO_CLASS_RE = re.compile(rf'\[{re.escape(AUTO_PREFIX)}\d+\](\s|$)')
+
+
+def is_auto_class(name: str) -> bool:
+    """True for a name made by auto_class_name() ('[a1]', '[a01] pagamento/esselunga'); False for custom classes
+    and CLASS_TODO."""
+    return _AUTO_CLASS_RE.match(name) is not None
 
 
 def cluster_auto(df: pd.DataFrame, classes: pd.Series, n_clusters: int = AUTO_N_CLUSTERS,

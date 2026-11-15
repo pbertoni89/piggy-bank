@@ -10,7 +10,7 @@ from piggy_bank.ui.filter_tools_rc import Ui_FilterTools
 class QW_FilterTools(QWidget, Ui_FilterTools):
     """Custom widget to handle filter tools."""
 
-    CLASS_ROWS = 2  # rows of class checkboxes in qgl_classes; columns grow with the number of classes
+    CLASS_ROWS = 2  # rows of class checkboxes in each class area; columns grow with the number of classes
 
     # Custom signal emitted when filters are stable and ready to be applied
     filters_updated = Signal()
@@ -30,7 +30,7 @@ class QW_FilterTools(QWidget, Ui_FilterTools):
         self.__spins = {self.qrs_out: (self.qsb_out_min, self.qsb_out_max),
                         self.qrs_in: (self.qsb_in_min, self.qsb_in_max)}
 
-        # One checkbox per class in qsaw_classes, built by setup_classes(): {class name: checkbox}
+        # One checkbox per class in qsaw_classes_custom or qsaw_classes_auto, built by setup_classes(): {class: checkbox}
         self.__qchk_classes = {}
 
         # --- Set up the debouncing timer ---
@@ -56,46 +56,94 @@ class QW_FilterTools(QWidget, Ui_FilterTools):
         self.qde_end.dateChanged.connect(self._on_qde_end_dateChanged)
         self.qpb_reset.clicked.connect(self._on_qpb_reset_clicked)
         self.qpb_last_month.clicked.connect(self._on_qpb_last_month_clicked)
+        self.qpb_classes_all.clicked.connect(self._on_qpb_classes_all_clicked)
+        self.qpb_classes_none.clicked.connect(self._on_qpb_classes_none_clicked)
+        self.qpb_classes_custom_only.clicked.connect(self._on_qpb_classes_custom_only_clicked)
+
+    def class_areas(self) -> dict:
+        """{scroll area: its contents widget}: custom classes (and CLASS_TODO) first, then automatic ones."""
+        return {self.qsa_classes_custom: self.qsaw_classes_custom, self.qsa_classes_auto: self.qsaw_classes_auto}
+
+    def class_area(self, cls: str) -> QWidget:
+        """The scroll area contents widget that holds the checkbox of class cls (see etica.is_auto_class())."""
+        return self.qsaw_classes_auto if is_auto_class(cls) else self.qsaw_classes_custom
 
     def setup_classes(self, df: pd.DataFrame):
-        """(Re)builds one checkbox per class of df[COL_CLASS] in qsaw_classes, labelled with its number of rows.
-        They fill a grid of CLASS_ROWS rows column by column, in sorted_classes() order, and qsa_classes scrolls
-        horizontally when the columns don't fit.
+        """(Re)builds one checkbox per class of df[COL_CLASS], labelled with its number of rows: automatic classes in
+        qsa_classes_auto, the others (custom classes and CLASS_TODO) in qsa_classes_custom. In each area they fill a
+        grid of CLASS_ROWS rows column by column, in sorted_classes() order, and the area scrolls horizontally when
+        the columns don't fit. An area with no class is hidden.
         New classes start checked (accepted); a class already shown keeps its checked state across reloads."""
         unchecked = set(self.excluded_classes())
-        layout = self.qgl_classes
-        while layout.count():
-            widget = layout.takeAt(0).widget()
-            if widget is not None:
-                widget.setParent(None)
-                widget.deleteLater()
         self.__qchk_classes = {}
-
         counts = df[COL_CLASS].value_counts()
-        for cls in sorted_classes(counts.index):
-            qchk = QCheckBox(f'{cls} ({counts[cls]})', self.qsaw_classes)
-            qchk.setObjectName(f'qchk_class_{cls}')
-            qchk.setChecked(cls not in unchecked)
-            qchk.toggled.connect(self._on_qchk_class_toggled)
-            idx = len(self.__qchk_classes)
-            layout.addWidget(qchk, idx % self.CLASS_ROWS, idx // self.CLASS_ROWS)
-            self.__qchk_classes[cls] = qchk
-        # Keeps the columns packed to the left when they don't fill the area
-        n_cols = -(-len(self.__qchk_classes) // self.CLASS_ROWS)
-        layout.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum),
-                       0, n_cols, self.CLASS_ROWS, 1)
-        # Never scrolls vertically: always tall enough for every row plus the horizontal scroll bar
-        self.qsa_classes.setMinimumHeight(layout.sizeHint().height()
-                                         + self.qsa_classes.horizontalScrollBar().sizeHint().height()
-                                         + 2 * self.qsa_classes.frameWidth())
+        classes = sorted_classes(counts.index)
+
+        for qsa, qsaw in self.class_areas().items():
+            # The grid is whatever layout the contents widget has in the .ui, so its name doesn't matter
+            layout = qsaw.layout()
+            while layout.count():
+                widget = layout.takeAt(0).widget()
+                if widget is not None:
+                    widget.setParent(None)
+                    widget.deleteLater()
+
+            area_classes = [cls for cls in classes if self.class_area(cls) is qsaw]
+            for idx, cls in enumerate(area_classes):
+                qchk = QCheckBox(f'{cls} ({counts[cls]})', qsaw)
+                qchk.setObjectName(f'qchk_class_{cls}')
+                qchk.setChecked(cls not in unchecked)
+                qchk.toggled.connect(self._on_qchk_class_toggled)
+                layout.addWidget(qchk, idx % self.CLASS_ROWS, idx // self.CLASS_ROWS)
+                self.__qchk_classes[cls] = qchk
+            # Keeps the columns packed to the left when they don't fill the area
+            n_cols = -(-len(area_classes) // self.CLASS_ROWS)
+            layout.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum),
+                           0, n_cols, self.CLASS_ROWS, 1)
+            # Never scrolls vertically: always tall enough for every row plus the horizontal scroll bar
+            qsa.setMinimumHeight(layout.sizeHint().height() + qsa.horizontalScrollBar().sizeHint().height()
+                                 + 2 * qsa.frameWidth())
+            qsa.setVisible(bool(area_classes))
 
     def class_checkboxes(self) -> dict:
-        """{class name: QCheckBox}, in display order."""
+        """{class name: QCheckBox}, in display order: the custom area's, then the automatic area's."""
         return dict(self.__qchk_classes)
 
     def excluded_classes(self) -> set:
         """The classes whose checkbox is unchecked: their rows are filtered out."""
         return {cls for cls, qchk in self.__qchk_classes.items() if not qchk.isChecked()}
+
+    def set_all_classes(self, checked: bool):
+        """Checks (accepts) or unchecks (excludes) every class checkbox, then filters once, right away.
+        Nothing is emitted if no checkbox changed."""
+        self.set_classes(lambda _cls: checked)
+
+    def set_classes(self, accept):
+        """Checks the class checkboxes for which accept(class name) is true and unchecks the others, then filters
+        once, right away. Nothing is emitted if no checkbox changed."""
+        changed = [(qchk, want) for cls, qchk in self.__qchk_classes.items()
+                   if qchk.isChecked() != (want := bool(accept(cls)))]
+        for qchk, want in changed:
+            qchk.blockSignals(True)
+            qchk.setChecked(want)
+            qchk.blockSignals(False)
+        if changed:
+            # A pending debounced emission (e.g. a class just toggled by hand) would filter again for nothing
+            self.__timer.stop()
+            self.filters_updated.emit()
+
+    @Slot()
+    def _on_qpb_classes_all_clicked(self):
+        self.set_all_classes(True)
+
+    @Slot()
+    def _on_qpb_classes_none_clicked(self):
+        self.set_all_classes(False)
+
+    @Slot()
+    def _on_qpb_classes_custom_only_clicked(self):
+        # Every class not named by automatic clustering: the custom-classes.csv ones, and CLASS_TODO
+        self.set_classes(lambda cls: not is_auto_class(cls))
 
     def setup_dates(self, df: pd.DataFrame):
         """Sets qde_start and qde_end (and their reset defaults) to the min and max dates of the dataframe."""

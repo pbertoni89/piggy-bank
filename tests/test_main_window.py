@@ -326,7 +326,7 @@ class TestClusteringSettings:
         self.change(qtbot, window, n_clusters=1)
 
         assert column(window, COL_CLASS) == ['[a1] pizza/asporto'] * 3 + ['investment']
-        assert list(window.ft.class_checkboxes()) == ['[a1] pizza/asporto', 'investment']
+        assert list(window.ft.class_checkboxes()) == ['investment', '[a1] pizza/asporto']  # custom area first
         tabs = window.ui_classes.qtw_tabs
         assert [tabs.tabText(i) for i in range(tabs.count())] == ['[a1] pizza/asporto', 'investment']
 

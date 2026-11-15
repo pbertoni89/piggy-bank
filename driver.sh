@@ -93,6 +93,7 @@ function pb_docker_jupyter() {
 
 function pb_activate_venv() {
   source "${dirVenv}/bin/activate"
+  echo "Selected python $(which python), version $(python --version)"
 }
 
 
@@ -136,6 +137,7 @@ function pb_run_designer() {
 
 
 function pb_build_ui() {
+  pb_activate_venv
   pushd "${dirRoot}"/piggy_bank/ui > /dev/null || return 1
   local ui_file
   local rc_file
@@ -156,6 +158,7 @@ function pb_build_ui() {
 
 
 function pb_run_gui() {
+  pb_activate_venv
   pushd "${dirRoot}" > /dev/null || return 1
 
   python -c "import superqt; print(f'superqt version {superqt.__version__} is installed')" || {

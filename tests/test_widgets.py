@@ -111,7 +111,7 @@ def test_filter_tools_class_checkboxes(qtbot, df, df_classes):
     boxes = ft.class_checkboxes()
     assert list(boxes) == ['food', 'loan', CLASS_TODO]  # alphabetical, todo last
     assert [b.text() for b in boxes.values()] == ['food (2)', 'loan (1)', 'todo (1)']
-    assert all(b.isChecked() and b.parent() is ft.qsaw_classes for b in boxes.values())
+    assert all(b.isChecked() and b.parent() is ft.qsaw_classes_custom for b in boxes.values())
     assert ft.excluded_classes() == set()
 
 
@@ -129,6 +129,51 @@ def test_filter_tools_unchecking_a_class_filters(qtbot, df, df_classes):
     assert ft.excluded_classes() == set()
 
 
+def test_filter_tools_classes_all_none_buttons_match_their_labels(qtbot, df):
+    ft = QW_FilterTools(df)
+    qtbot.addWidget(ft)
+
+    assert ft.qpb_classes_all.text() == 'All'
+    assert ft.qpb_classes_none.text() == 'None'
+
+
+def test_filter_tools_classes_none_and_all(qtbot, df, df_classes):
+    ft = QW_FilterTools(df)
+    qtbot.addWidget(ft)
+    ft.setup_classes(df_classes)
+    emitted = []
+    ft.filters_updated.connect(lambda: emitted.append(1))
+
+    ft.qpb_classes_none.click()
+    assert ft.excluded_classes() == {'food', 'loan', CLASS_TODO}
+    assert emitted == [1]  # filters once, right away, not once per checkbox
+
+    ft.qpb_classes_none.click()
+    assert emitted == [1]  # nothing changed, nothing to filter
+
+    ft.class_checkboxes()['loan'].setChecked(True)  # starts the debounce timer
+    ft.qpb_classes_all.click()
+    assert ft.excluded_classes() == set()
+    qtbot.wait(1200)
+    assert emitted == [1, 1]  # the pending debounced emission was dropped
+
+
+def test_filter_tools_classes_custom_only(qtbot, df):
+    ft = QW_FilterTools(df)
+    qtbot.addWidget(ft)
+    ft.setup_classes(pd.DataFrame({COL_CLASS: ['food', 'loan', '[a1] pagamento/esselunga', '[a2]', CLASS_TODO]}))
+    ft.class_checkboxes()['loan'].setChecked(False)  # an unchecked custom class gets checked
+    emitted = []
+    ft.filters_updated.connect(lambda: emitted.append(1))
+
+    ft.qpb_classes_custom_only.click()
+    assert ft.excluded_classes() == {'[a1] pagamento/esselunga', '[a2]'}
+    assert emitted == [1]
+
+    ft.qpb_classes_custom_only.click()
+    assert emitted == [1]  # nothing changed, nothing to filter
+
+
 def test_filter_tools_classes_rebuild_keeps_unchecked(qtbot, df, df_classes):
     ft = QW_FilterTools(df)
     qtbot.addWidget(ft)
@@ -141,11 +186,12 @@ def test_filter_tools_classes_rebuild_keeps_unchecked(qtbot, df, df_classes):
 
     assert list(ft.class_checkboxes()) == ['loan', 'rent', CLASS_TODO]
     assert ft.excluded_classes() == {'loan'}
-    assert ft.qgl_classes.count() == 4  # 3 checkboxes and the spacer, nothing left over
+    assert ft.qsaw_classes_custom.layout().count() == 4  # 3 checkboxes and the spacer, nothing left over
 
 
-def grid_cell(ft, qchk) -> tuple:
-    row, col, _, _ = ft.qgl_classes.getItemPosition(ft.qgl_classes.indexOf(qchk))
+def grid_cell(qchk) -> tuple:
+    layout = qchk.parent().layout()
+    row, col, _, _ = layout.getItemPosition(layout.indexOf(qchk))
     return row, col
 
 
@@ -155,23 +201,50 @@ def test_filter_tools_classes_fill_two_rows_by_column(qtbot, df):
 
     ft.setup_classes(pd.DataFrame({COL_CLASS: ['a', 'b', 'c', 'd', 'e', CLASS_TODO]}))
 
-    cells = {cls: grid_cell(ft, qchk) for cls, qchk in ft.class_checkboxes().items()}
+    cells = {cls: grid_cell(qchk) for cls, qchk in ft.class_checkboxes().items()}
     assert cells == {'a': (0, 0), 'b': (1, 0), 'c': (0, 1), 'd': (1, 1), 'e': (0, 2), CLASS_TODO: (1, 2)}
 
 
-def test_filter_tools_classes_scroll_horizontally_only(qtbot, df):
+@pytest.mark.parametrize('name', ['some long class name {}', '[a{:02d}] some long auto class name'])
+def test_filter_tools_classes_scroll_horizontally_only(qtbot, df, name):
     from PySide6.QtCore import Qt
     ft = QW_FilterTools(df)
     qtbot.addWidget(ft)
-    ft.setup_classes(pd.DataFrame({COL_CLASS: [f'some long class name {i}' for i in range(30)]}))
+    ft.setup_classes(pd.DataFrame({COL_CLASS: [name.format(i) for i in range(30)]}))
     ft.show()
     qtbot.waitExposed(ft)
 
-    sa = ft.qsa_classes
+    qsaw = ft.class_area(name.format(0))
+    sa = qsaw.parent().parent()  # contents widget -> viewport -> scroll area
+    assert sa in ft.class_areas()
     assert sa.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
     assert sa.horizontalScrollBar().maximum() > 0  # 15 columns can't fit
     # Both rows are fully visible above the horizontal scroll bar
-    assert sa.viewport().height() >= ft.qsaw_classes.height() >= ft.qgl_classes.sizeHint().height()
+    assert sa.viewport().height() >= qsaw.height() >= qsaw.layout().sizeHint().height()
+
+
+def test_filter_tools_classes_custom_and_auto_areas(qtbot, df):
+    ft = QW_FilterTools(df)
+    qtbot.addWidget(ft)
+    ft.show()
+
+    ft.setup_classes(pd.DataFrame({COL_CLASS: ['food', '[a2] y', 'loan', '[a1] x', CLASS_TODO]}))
+
+    assert list(ft.class_checkboxes()) == ['food', 'loan', CLASS_TODO, '[a1] x', '[a2] y']  # custom, then auto
+    areas = {cls: qchk.parent() for cls, qchk in ft.class_checkboxes().items()}
+    assert {cls for cls, w in areas.items() if w is ft.qsaw_classes_custom} == {'food', 'loan', CLASS_TODO}
+    assert {cls for cls, w in areas.items() if w is ft.qsaw_classes_auto} == {'[a1] x', '[a2] y'}
+    assert [grid_cell(ft.class_checkboxes()[c]) for c in ('[a1] x', '[a2] y')] == [(0, 0), (1, 0)]  # own grid
+    assert ft.qsa_classes_custom.isVisible() and ft.qsa_classes_auto.isVisible()
+
+    # Automatic clustering off: no automatic class, so that area is hidden; its old checkboxes are gone
+    ft.setup_classes(pd.DataFrame({COL_CLASS: ['food', CLASS_TODO]}))
+    assert ft.qsa_classes_custom.isVisible() and not ft.qsa_classes_auto.isVisible()
+    assert ft.qsaw_classes_auto.layout().count() == 1  # just the spacer
+
+    # No custom-classes.csv: every class is automatic
+    ft.setup_classes(pd.DataFrame({COL_CLASS: ['[a1] x']}))
+    assert not ft.qsa_classes_custom.isVisible() and ft.qsa_classes_auto.isVisible()
 
 
 @pytest.fixture
