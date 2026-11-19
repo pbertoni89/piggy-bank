@@ -56,9 +56,10 @@ class QW_FilterTools(QWidget, Ui_FilterTools):
         self.qde_end.dateChanged.connect(self._on_qde_end_dateChanged)
         self.qpb_reset.clicked.connect(self._on_qpb_reset_clicked)
         self.qpb_last_month.clicked.connect(self._on_qpb_last_month_clicked)
-        self.qpb_classes_all.clicked.connect(self._on_qpb_classes_all_clicked)
-        self.qpb_classes_none.clicked.connect(self._on_qpb_classes_none_clicked)
-        self.qpb_classes_custom_only.clicked.connect(self._on_qpb_classes_custom_only_clicked)
+        self.qpb_classes_custom_all.clicked.connect(self._on_qpb_classes_custom_all_clicked)
+        self.qpb_classes_custom_none.clicked.connect(self._on_qpb_classes_custom_none_clicked)
+        self.qpb_classes_auto_all.clicked.connect(self._on_qpb_classes_auto_all_clicked)
+        self.qpb_classes_auto_none.clicked.connect(self._on_qpb_classes_auto_none_clicked)
 
     def class_areas(self) -> dict:
         """{scroll area: its contents widget}: custom classes (and CLASS_TODO) first, then automatic ones."""
@@ -72,7 +73,7 @@ class QW_FilterTools(QWidget, Ui_FilterTools):
         """(Re)builds one checkbox per class of df[COL_CLASS], labelled with its number of rows: automatic classes in
         qsa_classes_auto, the others (custom classes and CLASS_TODO) in qsa_classes_custom. In each area they fill a
         grid of CLASS_ROWS rows column by column, in sorted_classes() order, and the area scrolls horizontally when
-        the columns don't fit. An area with no class is hidden.
+        the columns don't fit. An area with no class is hidden, with its group box and All/None buttons.
         New classes start checked (accepted); a class already shown keeps its checked state across reloads."""
         unchecked = set(self.excluded_classes())
         self.__qchk_classes = {}
@@ -103,7 +104,8 @@ class QW_FilterTools(QWidget, Ui_FilterTools):
             # Never scrolls vertically: always tall enough for every row plus the horizontal scroll bar
             qsa.setMinimumHeight(layout.sizeHint().height() + qsa.horizontalScrollBar().sizeHint().height()
                                  + 2 * qsa.frameWidth())
-            qsa.setVisible(bool(area_classes))
+            # The group box around the area also holds its All/None buttons, useless with no class
+            qsa.parentWidget().setVisible(bool(area_classes))
 
     def class_checkboxes(self) -> dict:
         """{class name: QCheckBox}, in display order: the custom area's, then the automatic area's."""
@@ -113,10 +115,11 @@ class QW_FilterTools(QWidget, Ui_FilterTools):
         """The classes whose checkbox is unchecked: their rows are filtered out."""
         return {cls for cls, qchk in self.__qchk_classes.items() if not qchk.isChecked()}
 
-    def set_all_classes(self, checked: bool):
-        """Checks (accepts) or unchecks (excludes) every class checkbox, then filters once, right away.
+    def set_area_classes(self, qsaw: QWidget, checked: bool):
+        """Checks (accepts) or unchecks (excludes) every class checkbox in the area whose contents widget is qsaw
+        (see class_areas()), leaving the other area as it is, then filters once, right away.
         Nothing is emitted if no checkbox changed."""
-        self.set_classes(lambda _cls: checked)
+        self.set_classes(lambda cls: checked if self.class_area(cls) is qsaw else self.__qchk_classes[cls].isChecked())
 
     def set_classes(self, accept):
         """Checks the class checkboxes for which accept(class name) is true and unchecks the others, then filters
@@ -133,17 +136,20 @@ class QW_FilterTools(QWidget, Ui_FilterTools):
             self.filters_updated.emit()
 
     @Slot()
-    def _on_qpb_classes_all_clicked(self):
-        self.set_all_classes(True)
+    def _on_qpb_classes_custom_all_clicked(self):
+        self.set_area_classes(self.qsaw_classes_custom, True)
 
     @Slot()
-    def _on_qpb_classes_none_clicked(self):
-        self.set_all_classes(False)
+    def _on_qpb_classes_custom_none_clicked(self):
+        self.set_area_classes(self.qsaw_classes_custom, False)
 
     @Slot()
-    def _on_qpb_classes_custom_only_clicked(self):
-        # Every class not named by automatic clustering: the custom-classes.csv ones, and CLASS_TODO
-        self.set_classes(lambda cls: not is_auto_class(cls))
+    def _on_qpb_classes_auto_all_clicked(self):
+        self.set_area_classes(self.qsaw_classes_auto, True)
+
+    @Slot()
+    def _on_qpb_classes_auto_none_clicked(self):
+        self.set_area_classes(self.qsaw_classes_auto, False)
 
     def setup_dates(self, df: pd.DataFrame):
         """Sets qde_start and qde_end (and their reset defaults) to the min and max dates of the dataframe."""

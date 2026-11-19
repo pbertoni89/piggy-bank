@@ -579,6 +579,23 @@ def compute_candlesticks(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
     return rv.reset_index()
 
 
+TIMEFRAME_UNITS = {TF_WEEKLY: 'week', TF_MONTHLY: 'month', TF_YEARLY: 'year'}
+
+
+def compute_close_ols(candles: pd.DataFrame, timeframe: str) -> Tuple[pd.Series, float, float]:
+    """OLS fit of the candles' Close (the balance at the end of each period) vs period number.
+    One point per period, so busy periods don't weigh more, and every point sits at the same phase
+    of the period (e.g. always the month's end). Returns (fitted value per candle, m, q), with m in
+    EUR per period (week, month or year); periods with no candle still count in the x spacing.
+    With fewer than 2 candles, everything is NaN."""
+    if len(candles) < 2:
+        return pd.Series(float('nan'), index=candles.index), float('nan'), float('nan')
+    x = pd.PeriodIndex(pd.to_datetime(candles['Date']), freq=TIMEFRAMES[timeframe]).asi8.astype(float)
+    x -= x[0]  # period number, from 0
+    m, q = np.polyfit(x, candles['Close'].values.astype(float), 1)
+    return pd.Series(m * x + q, index=candles.index), m, q
+
+
 class AggrStats:
     """Summary statistics of a list of amounts (no Qt): entries, min, max, sum, median, avg, std.
     Empty input gives 0 entries, sum 0 and NaN for the rest. std is the sample one, NaN under 2 values."""

@@ -133,8 +133,14 @@ def test_filter_tools_classes_all_none_buttons_match_their_labels(qtbot, df):
     ft = QW_FilterTools(df)
     qtbot.addWidget(ft)
 
-    assert ft.qpb_classes_all.text() == 'All'
-    assert ft.qpb_classes_none.text() == 'None'
+    for area in ('custom', 'auto'):
+        assert getattr(ft, f'qpb_classes_{area}_all').text() == 'All'
+        assert getattr(ft, f'qpb_classes_{area}_none').text() == 'None'
+
+
+MIXED_CLASSES = ['food', 'loan', '[a1] pagamento/esselunga', '[a2]', CLASS_TODO]
+CUSTOM_CLASSES = {'food', 'loan', CLASS_TODO}
+AUTO_CLASSES = {'[a1] pagamento/esselunga', '[a2]'}
 
 
 def test_filter_tools_classes_none_and_all(qtbot, df, df_classes):
@@ -144,34 +150,53 @@ def test_filter_tools_classes_none_and_all(qtbot, df, df_classes):
     emitted = []
     ft.filters_updated.connect(lambda: emitted.append(1))
 
-    ft.qpb_classes_none.click()
+    ft.qpb_classes_custom_none.click()
     assert ft.excluded_classes() == {'food', 'loan', CLASS_TODO}
     assert emitted == [1]  # filters once, right away, not once per checkbox
 
-    ft.qpb_classes_none.click()
+    ft.qpb_classes_custom_none.click()
     assert emitted == [1]  # nothing changed, nothing to filter
 
     ft.class_checkboxes()['loan'].setChecked(True)  # starts the debounce timer
-    ft.qpb_classes_all.click()
+    ft.qpb_classes_custom_all.click()
     assert ft.excluded_classes() == set()
     qtbot.wait(1200)
     assert emitted == [1, 1]  # the pending debounced emission was dropped
 
 
-def test_filter_tools_classes_custom_only(qtbot, df):
+@pytest.mark.parametrize('area, mine, other', [('custom', CUSTOM_CLASSES, AUTO_CLASSES),
+                                               ('auto', AUTO_CLASSES, CUSTOM_CLASSES)])
+def test_filter_tools_classes_area_buttons_leave_the_other_area_alone(qtbot, df, area, mine, other):
     ft = QW_FilterTools(df)
     qtbot.addWidget(ft)
-    ft.setup_classes(pd.DataFrame({COL_CLASS: ['food', 'loan', '[a1] pagamento/esselunga', '[a2]', CLASS_TODO]}))
-    ft.class_checkboxes()['loan'].setChecked(False)  # an unchecked custom class gets checked
+    ft.setup_classes(pd.DataFrame({COL_CLASS: MIXED_CLASSES}))
+    one_other = sorted(other)[0]
+    ft.class_checkboxes()[one_other].setChecked(False)  # stays unchecked through this area's All/None
     emitted = []
     ft.filters_updated.connect(lambda: emitted.append(1))
 
-    ft.qpb_classes_custom_only.click()
-    assert ft.excluded_classes() == {'[a1] pagamento/esselunga', '[a2]'}
+    getattr(ft, f'qpb_classes_{area}_none').click()
+    assert ft.excluded_classes() == mine | {one_other}
     assert emitted == [1]
 
-    ft.qpb_classes_custom_only.click()
-    assert emitted == [1]  # nothing changed, nothing to filter
+    getattr(ft, f'qpb_classes_{area}_all').click()
+    assert ft.excluded_classes() == {one_other}
+    assert emitted == [1, 1]
+
+    getattr(ft, f'qpb_classes_{area}_all').click()
+    assert emitted == [1, 1]  # nothing changed in this area, nothing to filter
+
+
+def test_filter_tools_classes_custom_only(qtbot, df):
+    """Custom only = Custom All + Auto None."""
+    ft = QW_FilterTools(df)
+    qtbot.addWidget(ft)
+    ft.setup_classes(pd.DataFrame({COL_CLASS: MIXED_CLASSES}))
+    ft.class_checkboxes()['loan'].setChecked(False)
+
+    ft.qpb_classes_custom_all.click()
+    ft.qpb_classes_auto_none.click()
+    assert ft.excluded_classes() == AUTO_CLASSES
 
 
 def test_filter_tools_classes_rebuild_keeps_unchecked(qtbot, df, df_classes):
@@ -240,11 +265,13 @@ def test_filter_tools_classes_custom_and_auto_areas(qtbot, df):
     # Automatic clustering off: no automatic class, so that area is hidden; its old checkboxes are gone
     ft.setup_classes(pd.DataFrame({COL_CLASS: ['food', CLASS_TODO]}))
     assert ft.qsa_classes_custom.isVisible() and not ft.qsa_classes_auto.isVisible()
+    assert not ft.qpb_classes_auto_all.isVisible() and not ft.qpb_classes_auto_none.isVisible()  # whole group box
     assert ft.qsaw_classes_auto.layout().count() == 1  # just the spacer
 
     # No custom-classes.csv: every class is automatic
     ft.setup_classes(pd.DataFrame({COL_CLASS: ['[a1] x']}))
     assert not ft.qsa_classes_custom.isVisible() and ft.qsa_classes_auto.isVisible()
+    assert not ft.qpb_classes_custom_all.isVisible() and ft.qpb_classes_auto_all.isVisible()
 
 
 @pytest.fixture

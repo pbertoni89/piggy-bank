@@ -40,7 +40,7 @@
    <item>
     <widget class="QGroupBox" name="groupBox">
      <property name="title">
-      <string>GroupBox</string>
+      <string>Filters</string>
      </property>
      <layout class="QGridLayout" name="gridLayout_2">
       <item row="2" column="3">
@@ -181,31 +181,24 @@
     </widget>
    </item>
    <item>
-    <widget class="QGroupBox" name="qgb_classes">
+    <widget class="QGroupBox" name="qgb_classes_custom">
      <property name="title">
-      <string>Classes</string>
+      <string>Custom Classes</string>
      </property>
      <layout class="QHBoxLayout" name="horizontalLayout">
       <item>
        <layout class="QVBoxLayout" name="verticalLayout_3">
         <item>
-         <widget class="QPushButton" name="qpb_classes_all">
+         <widget class="QPushButton" name="qpb_classes_custom_all">
           <property name="text">
            <string>All</string>
           </property>
          </widget>
         </item>
         <item>
-         <widget class="QPushButton" name="qpb_classes_none">
+         <widget class="QPushButton" name="qpb_classes_custom_none">
           <property name="text">
            <string>None</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QPushButton" name="qpb_classes_custom_only">
-          <property name="text">
-           <string>Custom only</string>
           </property>
          </widget>
         </item>
@@ -227,13 +220,40 @@
           <rect>
            <x>0</x>
            <y>0</y>
-           <width>124</width>
+           <width>74</width>
            <height>247</height>
           </rect>
          </property>
          <layout class="QGridLayout" name="qgl_classes_3"/>
         </widget>
        </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="qgb_classes_auto">
+     <property name="title">
+      <string>Auto Classes</string>
+     </property>
+     <layout class="QHBoxLayout" name="horizontalLayout_2">
+      <item>
+       <layout class="QVBoxLayout" name="verticalLayout_4">
+        <item>
+         <widget class="QPushButton" name="qpb_classes_auto_all">
+          <property name="text">
+           <string>All</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="qpb_classes_auto_none">
+          <property name="text">
+           <string>None</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
       </item>
       <item>
        <widget class="QScrollArea" name="qsa_classes_auto">
@@ -251,11 +271,11 @@
           <rect>
            <x>0</x>
            <y>0</y>
-           <width>124</width>
+           <width>73</width>
            <height>247</height>
           </rect>
          </property>
-         <layout class="QGridLayout" name="qgl_classes"/>
+         <layout class="QGridLayout" name="qgl_classes_2"/>
         </widget>
        </widget>
       </item>

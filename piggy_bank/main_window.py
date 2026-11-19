@@ -12,7 +12,7 @@ from PySide6.QtGui import QIcon, QGuiApplication
 from PySide6.QtWidgets import QApplication, QMainWindow, QTableWidgetItem, QHeaderView, QFileDialog, QMessageBox
 from piggy_bank.qw_misc import *
 from piggy_bank.ui.main_window_rc import Ui_MainWindow
-from piggy_bank.aggr_stats import QW_AggrStats
+from piggy_bank.aggr_stats import QW_AggrStats, COLOR_POSITIVE, COLOR_NEGATIVE
 from piggy_bank.filter_tools import QW_FilterTools
 from piggy_bank.etica import *
 # DATA_DIR is read through the module at call time, so it can be redirected (e.g. by tests)
@@ -20,6 +20,27 @@ from piggy_bank import etica
 
 
 # noinspection PyPep8Naming
+def amount_histogram_figure(df_plot: pd.DataFrame, bin_size: float) -> go.Figure:
+    """Amount frequency histogram on one axis: Out (red, negative side) and In (green, positive side) as two
+    separate traces. Bins are aligned on 0, so no bin straddles zero and mixes outflows with inflows.
+    df_plot has blanks as 0 in COL_OUT/COL_IN; those zeros are not movements of that direction and are dropped."""
+    fig = go.Figure()
+    out = df_plot[COL_OUT][df_plot[COL_OUT] != 0]
+    inc = df_plot[COL_IN][df_plot[COL_IN] != 0]
+    if not out.empty:
+        start = np.floor(out.min() / bin_size) * bin_size
+        fig.add_trace(go.Histogram(x=out, xbins=dict(start=start, end=0, size=bin_size),
+                                   name=COL_OUT, marker_color=COLOR_NEGATIVE))
+    if not inc.empty:
+        end = (np.floor(inc.max() / bin_size) + 1) * bin_size
+        fig.add_trace(go.Histogram(x=inc, xbins=dict(start=0, end=end, size=bin_size),
+                                   name=COL_IN, marker_color=COLOR_POSITIVE))
+    # The two traces never share a bin: overlay keeps each bar full width instead of half a group
+    fig.update_layout(title=f'Amount Frequency (Bin = {bin_size})', xaxis_title=COL_AMOUNT, yaxis_title='Count',
+                      barmode='overlay', bargap=0.1)
+    return fig
+
+
 class MainWindow(QMainWindow, Ui_MainWindow):
     def __init__(self):
         super().__init__()
@@ -424,6 +445,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.plot_hist_amount.render_figure(None)
             self.plot_hist_time.render_figure(None)
             self.plot_candles.render_figure(None)
+            self.fig_candle = None
+            self.fig_hist_amount = None
             self.plot_box_out.render_figure(None)
             self.plot_box_in.render_figure(None)
             return
@@ -454,15 +477,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         amount_bin_size_str = self.ui_plots_stats.qcb_plots_histograms_amount.currentText()
         amount_bin_size = int(amount_bin_size_str) if amount_bin_size_str.isdigit() else 100
 
-        fig_hist_amount = go.Figure()
-        fig_hist_amount.add_trace(go.Histogram(
-            x=self.df_plot[COL_AMOUNT],
-            xbins=dict(size=amount_bin_size),
-            name='Amount Freq',
-            marker_color='#1f77b4'
-        ))
-        fig_hist_amount.update_layout(title=f'Amount Frequency (Bin = {amount_bin_size})', xaxis_title=COL_AMOUNT, yaxis_title='Count', bargap=0.1)
-        self.plot_hist_amount.render_figure(fig_hist_amount)
+        self.fig_hist_amount = amount_histogram_figure(self.df_plot, amount_bin_size)
+        self.plot_hist_amount.render_figure(self.fig_hist_amount)
 
         # 3. Time Histogram (Periodic/Seasonal Binning)
         time_bin_str = self.ui_plots_stats.qcb_plots_histograms_time.currentText()
@@ -525,6 +541,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 high=df_candle['High'], low=df_candle['Low'],
                 close=df_candle['Close'], name=f"Candle ({candle_time_str})"
             ))
+            # Trend of the closing balances, one point per candle (see etica.compute_close_ols)
+            close_ols, m_close, _ = compute_close_ols(df_candle, candle_time_str)
+            if not close_ols.isna().all():
+                fig_candle.add_trace(go.Scatter(
+                    x=df_candle['Date'], y=close_ols, mode='lines',
+                    name=f'OLS Close<br>m = {m_close:.2f} / {TIMEFRAME_UNITS[candle_time_str]}',
+                    line=dict(color='#ff7f0e', width=2, dash='dash')))
+        self.fig_candle = fig_candle  # kept for tests
         fig_candle.update_layout(title=f'Balance Candlestick Chart ({candle_time_str})', xaxis_title='Date', yaxis_title=COL_RUN_TOT, xaxis_rangeslider_visible=False, hovermode='x unified')
         fig_candle.update_yaxes(minor=dict(dtick=500, showgrid=True))
         self.plot_candles.render_figure(fig_candle)

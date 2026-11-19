@@ -8,7 +8,7 @@ from piggy_bank.etica import (COL_DATE, COL_OUT, COL_IN, COL_DESCR, COL_RUN_TOT,
                               TF_WEEKLY, TF_MONTHLY, TF_YEARLY, period_start, AggrStats, compute_period_stats,
                               COL_PERIOD,
                               apply_classes, build_view, view_label, CLASS_TODO, sorted_classes,
-                              sort_by_date)
+                              sort_by_date, compute_close_ols)
 
 
 def ledger(rows):
@@ -59,6 +59,39 @@ def test_compute_candlesticks_monthly_ohlc():
     assert (jan.Open, jan.High, jan.Low, jan.Close) == (10.0, 30.0, 10.0, 20.0)
     assert len(out) == 2
     assert list(out['Date']) == list(pd.to_datetime(['2025-01-01', '2025-02-01']))  # months start on the 1st
+
+
+def candles(dates, closes):
+    return pd.DataFrame({'Date': pd.to_datetime(dates), 'Close': closes})
+
+
+def test_compute_close_ols_slope_is_per_period():
+    fitted, m, q = compute_close_ols(candles(['2025-01-01', '2025-02-01', '2025-03-01'], [100.0, 200.0, 300.0]),
+                                     TF_MONTHLY)
+
+    assert m == pytest.approx(100.0)  # EUR per month, despite months of different lengths
+    assert q == pytest.approx(100.0)
+    assert list(fitted) == pytest.approx([100.0, 200.0, 300.0])
+
+
+def test_compute_close_ols_counts_missing_periods():
+    # No candle in February: April is 3 months after January, not 2
+    _, m, _ = compute_close_ols(candles(['2025-01-01', '2025-03-01', '2025-04-01'], [0.0, 200.0, 300.0]), TF_MONTHLY)
+
+    assert m == pytest.approx(100.0)
+
+
+def test_compute_close_ols_weekly():
+    _, m, _ = compute_close_ols(candles(['2025-01-06', '2025-01-13', '2025-01-27'], [10.0, 20.0, 40.0]), TF_WEEKLY)
+
+    assert m == pytest.approx(10.0)
+
+
+def test_compute_close_ols_needs_two_candles():
+    fitted, m, q = compute_close_ols(candles(['2025-01-01'], [100.0]), TF_MONTHLY)
+
+    assert math.isnan(m) and math.isnan(q)
+    assert fitted.isna().all()
 
 
 def test_compute_candlesticks_weekly_starts_on_monday():

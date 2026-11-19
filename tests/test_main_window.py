@@ -125,6 +125,42 @@ def test_periods_tab_follows_filters(window):
 
 
 @pytest.mark.usefixtures('auto_off')
+class TestCandles:
+    # One +100 movement a month, on Mondays: closing balances 100, 200, 300, 400
+    MONTHLY = [('2025-01-06', None, 100.0, 'A'), ('2025-02-03', None, 100.0, 'B'),
+               ('2025-03-03', None, 100.0, 'C'), ('2025-04-07', None, 100.0, 'D')]
+
+    @pytest.fixture
+    def window(self, qtbot, write_csv, dialogs):
+        write_csv('a.csv', self.MONTHLY)
+        w = main_window.MainWindow()
+        qtbot.addWidget(w)
+        return w
+
+    def fit(self, w):
+        return next(t for t in w.fig_candle.data if t.name.startswith('OLS Close'))
+
+    def test_monthly_fit(self, window):
+        window.ui_plots_lines.qcb_candles_time.setCurrentText('Monthly')
+
+        fit = self.fit(window)
+        assert 'm = 100.00 / month' in fit.name
+        assert list(fit.y) == pytest.approx([100.0, 200.0, 300.0, 400.0])
+
+    def test_weekly_fit(self, window):
+        window.ui_plots_lines.qcb_candles_time.setCurrentText('Weekly')
+
+        fit = self.fit(window)
+        assert '/ week' in fit.name
+        assert len(fit.y) == 4  # one point per candle
+
+    def test_no_fit_with_a_single_candle(self, window):
+        window.ui_plots_lines.qcb_candles_time.setCurrentText('Yearly')
+
+        assert not any(t.name.startswith('OLS Close') for t in window.fig_candle.data)
+
+
+@pytest.mark.usefixtures('auto_off')
 class TestClassColumn:
 
     @pytest.fixture
@@ -367,3 +403,34 @@ class TestClusteringSettings:
 
         assert dialogs.messages[0][0] == 'critical'
         assert column(window, COL_CLASS) == before
+
+
+class TestAmountHistogram:
+    """Out and In are two traces, red and green, on bins aligned on 0."""
+
+    DF = pd.DataFrame({COL_OUT: [-250.4, -30.0, -10.0, 0.0, 0.0], COL_IN: [0.0, 0.0, 0.0, 20.0, 1200.9]})
+
+    def traces(self, fig):
+        return {t.name: t for t in fig.data}
+
+    def test_out_and_in_are_separate_traces(self):
+        traces = self.traces(main_window.amount_histogram_figure(self.DF, 100))
+
+        assert list(traces) == [COL_OUT, COL_IN]
+        assert list(traces[COL_OUT].x) == [-250.4, -30.0, -10.0]  # blanks (0) aren't movements
+        assert list(traces[COL_IN].x) == [20.0, 1200.9]
+        assert traces[COL_OUT].marker.color == '#d62728'
+        assert traces[COL_IN].marker.color == '#2ca02c'
+
+    def test_no_bin_straddles_zero(self):
+        traces = self.traces(main_window.amount_histogram_figure(self.DF, 100))
+
+        out_bins, in_bins = traces[COL_OUT].xbins, traces[COL_IN].xbins
+        assert (out_bins.start, out_bins.end, out_bins.size) == (-300, 0, 100)
+        assert (in_bins.start, in_bins.end, in_bins.size) == (0, 1300, 100)
+        assert in_bins.end > 1200.9  # the largest inflow is inside the last bin
+
+    def test_one_direction_only(self):
+        fig = main_window.amount_histogram_figure(self.DF.assign(**{COL_IN: 0.0}), 50)
+
+        assert [t.name for t in fig.data] == [COL_OUT]

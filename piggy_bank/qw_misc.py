@@ -369,7 +369,7 @@ def class_pie_figure(df: pd.DataFrame, column: str, colors: dict, title: str) ->
                     line=dict(color=PLOT_BG, width=2)),  # a 2px gap between slices
         textinfo='percent', textposition='inside', insidetextorientation='horizontal',
         hovertemplate='<b>%{value:,.2f} EUR</b> (%{percent})<br>%{label}<br>%{customdata}<extra></extra>'))
-    fig.update_layout(title=f'{title}: {sum(values):,.2f} EUR', uniformtext=dict(minsize=10, mode='hide'),
+    fig.update_layout(title=f'{title}: {sum(values):.2f} EUR', uniformtext=dict(minsize=10, mode='hide'),
                       legend=dict(traceorder='normal'))
     return fig
 

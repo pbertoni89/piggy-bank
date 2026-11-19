@@ -16,6 +16,21 @@ from piggy_bank.etica import CUSTOM_CLASSES_CSV, RULE_COLUMNS, SOURCE_COLUMNS, S
 SOURCE_HEADER = list(SOURCE_COLUMNS)
 
 
+@pytest.fixture(autouse=True)
+def flush_deferred_deletes():
+    """After each test, runs the deleteLater()s that closing its widgets queued.
+
+    Destroying a QWebEngineView queues the deletion of QtWebEngine internals, and no event loop runs
+    after a test to process them. Left queued, they run while Python exits, after QtWebEngine has torn
+    down its profile, and the interpreter crashes with SIGSEGV (exit code 139) once every test passed."""
+    yield
+    import gc
+    from PySide6.QtCore import QCoreApplication, QEvent
+    if QCoreApplication.instance() is not None:
+        gc.collect()  # drop the test's last references to its widgets first
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+
 @pytest.fixture
 def data_dir(tmp_path, monkeypatch):
     """An empty DATA_DIR that load_data() will read from (and write merged.csv into)."""
